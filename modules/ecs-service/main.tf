@@ -55,6 +55,16 @@ resource "aws_ecs_task_definition" "this" {
 
   container_definitions = jsonencode([local.container])
 
+  # Solo se emite cuando el entorno lo pide. Sin el bloque, Fargate asume
+  # X86_64; en AWS real las imagenes son arm64 y hay que decirlo explicito.
+  dynamic "runtime_platform" {
+    for_each = var.cpu_architecture == null ? [] : [1]
+    content {
+      operating_system_family = "LINUX"
+      cpu_architecture        = var.cpu_architecture
+    }
+  }
+
   tags = merge(var.tags, { Name = "${var.name_prefix}-${var.name}" })
 }
 

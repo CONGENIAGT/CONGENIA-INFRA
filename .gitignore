@@ -6,5 +6,7 @@
 crash.log
 .env
 *.auto.tfvars
-*.md
-!README.md
+
+# Nota: aqui habia un `*.md` con excepcion solo para README.md, que dejaba
+# PROPUESTA.md y docs/ARQUITECTURA.md fuera del repositorio pese a ser los
+# entregables del proyecto. La documentacion se versiona junto al codigo.
