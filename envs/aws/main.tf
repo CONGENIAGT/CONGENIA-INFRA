@@ -36,10 +36,51 @@ locals {
 resource "aws_secretsmanager_secret" "db" {
   name = "${var.name_prefix}/${var.environment}/postgres"
   tags = local.tags
+
+  # Sin ventana de recuperacion: de lo contrario `destroy` deja el nombre
+  # reservado 30 dias y el siguiente `apply` falla al recrearlo.
+  recovery_window_in_days = 0
 }
 
 data "aws_secretsmanager_secret_version" "db" {
   secret_id = aws_secretsmanager_secret.db.id
+}
+
+# ── Credenciales internas ───────────────────────────────────────────────────
+# A diferencia del password de Postgres (que se carga a mano porque el equipo
+# lo necesita para conectarse), estas solo las consumen los contenedores. Las
+# genera Terraform y quedan en Secrets Manager para poder auditarlas.
+
+resource "random_password" "rabbitmq" {
+  length  = 24
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "rabbitmq" {
+  name                    = "${var.name_prefix}/${var.environment}/rabbitmq"
+  recovery_window_in_days = 0
+  tags                    = local.tags
+}
+
+resource "aws_secretsmanager_secret_version" "rabbitmq" {
+  secret_id     = aws_secretsmanager_secret.rabbitmq.id
+  secret_string = random_password.rabbitmq.result
+}
+
+resource "random_password" "keycloak_admin" {
+  length  = 24
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "keycloak_admin" {
+  name                    = "${var.name_prefix}/${var.environment}/keycloak-admin"
+  recovery_window_in_days = 0
+  tags                    = local.tags
+}
+
+resource "aws_secretsmanager_secret_version" "keycloak_admin" {
+  secret_id     = aws_secretsmanager_secret.keycloak_admin.id
+  secret_string = random_password.keycloak_admin.result
 }
 
 module "network" {

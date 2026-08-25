@@ -16,6 +16,11 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 6.0"
     }
+
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 
   # Estado remoto compartido por el equipo. Crear el bucket y la tabla una

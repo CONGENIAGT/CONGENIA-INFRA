@@ -99,6 +99,22 @@ variable "launch_type" {
   }
 }
 
+variable "cpu_architecture" {
+  description = <<-DESC
+    Arquitectura de la tarea: ARM64 o X86_64. null = no se declara el bloque
+    y Fargate asume X86_64 (comportamiento historico, es lo que usa local).
+    En AWS real va ARM64: las imagenes se construyen en Apple Silicon y
+    Fargate Graviton cuesta menos.
+  DESC
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.cpu_architecture == null || contains(["ARM64", "X86_64"], coalesce(var.cpu_architecture, "ARM64"))
+    error_message = "cpu_architecture debe ser ARM64, X86_64 o null."
+  }
+}
+
 variable "service_discovery_arn" {
   description = <<-DESC
     ARN de un servicio de Cloud Map para registrar la tarea en DNS privado.
