@@ -39,6 +39,16 @@ variable "secret_arns" {
   default     = []
 }
 
+variable "immutable_image_tags" {
+  description = <<-DESC
+    Impide sobrescribir un tag ya publicado en ECR. Obliga a que cada version
+    tenga su propio tag, que es justo lo que se quiere en un registro
+    compartido. false en local, donde se reconstruye `:local` sin parar.
+  DESC
+  type        = bool
+  default     = false
+}
+
 variable "ephemeral" {
   description = <<-DESC
     Permite destruir los repositorios ECR aunque tengan imagenes publicadas.

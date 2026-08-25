@@ -5,6 +5,11 @@ ENV     ?= local
 TFDIR    = envs/$(ENV)
 TERRAFORM = terraform
 
+# Manifiesto de versiones: dice que imagen corre cada servicio. Lo genera
+# `scripts/release-plan.sh` del repo orquestador y se versiona junto al codigo.
+# Si no existe, Terraform usa `var.image_tag` para todos.
+VAR_FILE = $(if $(wildcard $(TFDIR)/images.tfvars),-var-file=images.tfvars,)
+
 .PHONY: help init plan apply reconcile smoke destroy fmt validate up images \
 	migrate migrate-image
 
@@ -24,10 +29,10 @@ init:
 	cd $(TFDIR) && $(TERRAFORM) init
 
 plan: init
-	cd $(TFDIR) && $(TERRAFORM) plan
+	cd $(TFDIR) && $(TERRAFORM) plan $(VAR_FILE)
 
 apply: init
-	cd $(TFDIR) && $(TERRAFORM) apply -auto-approve
+	cd $(TFDIR) && $(TERRAFORM) apply -auto-approve $(VAR_FILE)
 
 # Cierra los dos gaps que MiniStack no emula (ver PROPUESTA.md).
 reconcile:
@@ -48,7 +53,7 @@ migrate-image:
 up: apply reconcile smoke
 
 destroy:
-	cd $(TFDIR) && $(TERRAFORM) destroy -auto-approve
+	cd $(TFDIR) && $(TERRAFORM) destroy -auto-approve $(VAR_FILE)
 
 fmt:
 	$(TERRAFORM) fmt -recursive .
@@ -59,7 +64,9 @@ validate: init
 # Construye las imagenes de los servicios propios desde los repos de codigo.
 # ORCH_DIR debe apuntar al repositorio orquestador (CONGENIA-ORCH).
 ORCH_DIR ?= ../ProjectUVG
-IMAGE_TAG ?= latest
+
+# Vacio = lo deriva del commit del esquema (ver scripts/build-migrate-image.sh).
+IMAGE_TAG ?=
 
 images:
 	docker build -t congenia/api:local        $(ORCH_DIR)/CONGENIA-M1-SERVER

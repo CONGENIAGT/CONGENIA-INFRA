@@ -45,17 +45,15 @@ locals {
     S3_BUCKET = module.data.docs_bucket
     S3_REGION = var.region
 
-    # S3_FORCE_PATH_STYLE se deja SIN pasar a proposito. El worker la lee con
-    # `z.coerce.boolean()`, que aplica Boolean(string): "false" se convierte en
-    # true y la variable no apaga nada. El server directamente la ignora
-    # (forcePathStyle esta fijo en true). Path-style sigue funcionando contra
-    # S3 real, asi que no bloquea; queda anotado como deuda de codigo.
-    #
-    # S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY tampoco se pasan: serian llaves
-    # estaticas, justo lo que el task role viene a evitar. Mientras
-    # `src/lib/s3.ts` no omita el bloque `credentials`, las operaciones de S3
-    # seguiran fallando en AWS. Es cambio de codigo, no de infraestructura
-    # (PROPUESTA.md §9).
+    # Virtual-hosted, que es lo recomendado contra S3 real. Se puede pasar
+    # desde que los dos servicios leen la variable con un parseo booleano de
+    # verdad: antes usaban `z.coerce.boolean()`, que convierte "false" en true.
+    S3_FORCE_PATH_STYLE = "false"
+
+    # S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY siguen sin pasarse, y ahora eso
+    # es lo correcto y no una limitacion: sin llaves, el SDK recorre su cadena
+    # de credenciales y usa el rol IAM de la tarea, que ya tiene politica sobre
+    # el bucket. Ponerlas volveria a dejar el rol de adorno.
   }
 
   redis_env = {
@@ -155,7 +153,7 @@ module "api" {
   name_prefix      = "${var.name_prefix}-${var.environment}"
   cpu_architecture = "X86_64"
   cluster_id       = module.platform.cluster_id
-  image            = "${local.registry}/congenia/api:${var.image_tag}"
+  image            = "${local.registry}/congenia/api:${local.image_tag["api"]}"
   container_port   = local.ports.api
   cpu              = "1024"
   memory           = "2048"
@@ -195,16 +193,23 @@ module "pdf_worker" {
   name_prefix      = "${var.name_prefix}-${var.environment}"
   cpu_architecture = "X86_64"
   cluster_id       = module.platform.cluster_id
-  image            = "${local.registry}/congenia/pdf-worker:${var.image_tag}"
+  image            = "${local.registry}/congenia/pdf-worker:${local.image_tag["pdf-worker"]}"
   cpu              = "1024"
   memory           = "2048"
   desired_count    = 2
 
+  # Sin redis_env: el worker no tiene una sola referencia a Redis en su codigo
+  # (src/config/env.ts ni siquiera declara la variable).
   environment = merge(local.db_env, local.rabbit_env, local.s3_env, {
     NODE_ENV            = "production"
     RABBITMQ_QUEUE_MAIN = "consent.pdf.generate"
     RABBITMQ_QUEUE_DLQ  = "consent.pdf.generate.dlq"
     WORKER_PREFETCH     = "3"
+
+    # El bucket lo crea Terraform y el task role no tiene `s3:CreateBucket` a
+    # proposito. Sin esto, un nombre de bucket equivocado terminaria en un
+    # AccessDenied al intentar crearlo en vez de en un mensaje que se entienda.
+    S3_AUTO_CREATE_BUCKET = "false"
   })
 
   subnet_ids         = module.network.app_subnet_ids
@@ -223,7 +228,7 @@ module "frontend" {
   name_prefix      = "${var.name_prefix}-${var.environment}"
   cpu_architecture = "X86_64"
   cluster_id       = module.platform.cluster_id
-  image            = "${local.registry}/congenia/frontend:${var.image_tag}"
+  image            = "${local.registry}/congenia/frontend:${local.image_tag["frontend"]}"
   container_port   = local.ports.frontend
   cpu              = "512"
   memory           = "1024"

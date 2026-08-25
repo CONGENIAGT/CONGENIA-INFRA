@@ -30,9 +30,27 @@ variable "redis_node_type" {
 }
 
 variable "image_tag" {
-  description = "Tag desplegado. Lo publica el pipeline de cada repo de servicio."
+  description = <<-DESC
+    Tag por defecto, para cuando `image_tags` no trae uno para ese servicio.
+    Con ECR en modo inmutable, `latest` solo se puede publicar una vez: sirve
+    para una primera prueba, no para operar.
+  DESC
   type        = string
   default     = "latest"
+}
+
+variable "image_tags" {
+  description = <<-DESC
+    Tag desplegado por servicio: { api = "1.0.0-9696cd8", frontend = ... }.
+
+    Existe porque los tres servicios viven en repositorios distintos y avanzan
+    a ritmos distintos: un solo tag compartido obliga a republicar las tres
+    imagenes para mover una. El valor lo genera `scripts/release-plan.sh` del
+    repo orquestador y se versiona en `envs/aws/images.tfvars`, de modo que el
+    control de versiones registra que imagen exacta corre cada servicio.
+  DESC
+  type        = map(string)
+  default     = {}
 }
 
 variable "ephemeral" {

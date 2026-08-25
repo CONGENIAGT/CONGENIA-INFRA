@@ -108,6 +108,23 @@ make migrate ENV=aws         # corre la carga del esquema y espera el resultado
 
 `make migrate` es idempotente: si las tablas ya existen, no hace nada.
 
+### Que version corre cada servicio
+
+`envs/aws/images.tfvars` dice que imagen corre cada servicio, y `make apply`
+lo toma solo si existe:
+
+```hcl
+image_tags = {
+  "api"        = "1.0.0-9696cd8"
+  "frontend"   = "0.0.0-f212790"
+  "pdf-worker" = "1.0.0-23f94cc"
+}
+```
+
+Lo genera `scripts/release-plan.sh` del repo orquestador. Los repos ECR se
+crean con tags inmutables, asi que un push no puede pisar una version ya
+publicada. Ver PROPUESTA.md seccion 10.
+
 Tras reiniciar cualquier tarea ECS hay que volver a correr `make reconcile`:
 la IP del contenedor cambia y el target group se queda apuntando a la vieja.
 

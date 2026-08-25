@@ -33,6 +33,12 @@ locals {
   # Una sola fuente para el nombre: lo consume el modulo `data` al crear el
   # bucket y el modulo `platform` al acotar la politica del task role.
   docs_bucket_name = "${var.name_prefix}-${var.environment}-docs"
+
+  # Tag de cada imagen, con el default como red de seguridad.
+  image_tag = {
+    for servicio in ["api", "frontend", "pdf-worker", "migrate"] :
+    servicio => lookup(var.image_tags, servicio, var.image_tag)
+  }
 }
 
 # ── Secretos ────────────────────────────────────────────────────────────────
@@ -159,8 +165,9 @@ module "platform" {
   # migracion). Los demas se inyectan como environment desde Terraform.
   secret_arns = [aws_secretsmanager_secret.db.arn]
 
-  ephemeral = var.ephemeral
-  tags      = local.tags
+  immutable_image_tags = true
+  ephemeral            = var.ephemeral
+  tags                 = local.tags
 }
 
 module "edge" {
@@ -228,7 +235,7 @@ module "migrate" {
   source = "../../modules/migrate"
 
   name_prefix = "${var.name_prefix}-${var.environment}"
-  image       = "${local.registry}/congenia/migrate:${var.image_tag}"
+  image       = "${local.registry}/congenia/migrate:${local.image_tag["migrate"]}"
 
   db_host                = module.data.db_address
   db_port                = module.data.db_port

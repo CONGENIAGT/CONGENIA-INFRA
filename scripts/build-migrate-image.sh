@@ -10,13 +10,23 @@ set -euo pipefail
 
 TFDIR="${1:-envs/aws}"
 ORCH_DIR="${2:-../ProjectUVG}"
-TAG="${3:-latest}"
+TAG="${3:-}"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ORIGEN="${ORCH_DIR}/CONGENIA-M1-SERVER/db/init"
 CONTEXTO="${HERE}/docker/migrate"
 
 [[ -d "$ORIGEN" ]] || { echo "No encuentro los .sql en ${ORIGEN}" >&2; exit 1; }
+
+# Sin tag explicito, se deriva del ultimo commit que toco los .sql. Asi el tag
+# identifica el contenido: mismo esquema, mismo tag; esquema distinto, tag
+# distinto. Hace falta porque ECR esta en modo inmutable y un `latest` fijo
+# solo se podria publicar una vez.
+if [[ -z "$TAG" ]]; then
+  sha=$(git -C "${ORCH_DIR}/CONGENIA-M1-SERVER" log -1 --format=%h -- db/init 2>/dev/null || true)
+  TAG="schema-${sha:-sinrepo}"
+  echo "Tag derivado del esquema: ${TAG}"
+fi
 
 rm -rf "${CONTEXTO}/sql"
 mkdir -p "${CONTEXTO}/sql"
@@ -37,3 +47,6 @@ docker build --platform linux/amd64 -t "${repositorio}:${TAG}" "$CONTEXTO"
 docker push "${repositorio}:${TAG}"
 
 echo "Publicada ${repositorio}:${TAG}"
+echo
+echo "Agrega esta linea a ${TFDIR}/images.tfvars para que Terraform la use:"
+echo "  \"migrate\" = \"${TAG}\""
