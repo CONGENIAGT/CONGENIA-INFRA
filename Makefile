@@ -5,7 +5,8 @@ ENV     ?= local
 TFDIR    = envs/$(ENV)
 TERRAFORM = terraform
 
-.PHONY: help init plan apply reconcile smoke destroy fmt validate up images
+.PHONY: help init plan apply reconcile smoke destroy fmt validate up images \
+	migrate migrate-image
 
 help:
 	@echo "make up        - apply + registro de targets + smoke test (entorno $(ENV))"
@@ -15,6 +16,8 @@ help:
 	@echo "make reconcile - ajusta reglas y targets del ALB (solo local)"
 	@echo "make smoke     - pruebas de salud a traves del ALB"
 	@echo "make images    - construye las imagenes de CONGENIA desde los repos"
+	@echo "make migrate-image - construye y publica la imagen de migracion en ECR"
+	@echo "make migrate   - carga el esquema en la base (solo ENV=aws)"
 	@echo "make destroy   - destruye el entorno"
 
 init:
@@ -33,6 +36,15 @@ reconcile:
 smoke:
 	@./scripts/smoke-test.sh $(TFDIR)
 
+# Carga del esquema en RDS. Terraform declara la task definition; ejecutarla
+# una vez es este paso, explicito y fuera del estado (ver PROPUESTA.md §8b.1).
+# En local no aplica: docker-entrypoint-initdb.d ya lo hace.
+migrate:
+	@./scripts/migrate.sh $(TFDIR)
+
+migrate-image:
+	@./scripts/build-migrate-image.sh $(TFDIR) $(ORCH_DIR) $(IMAGE_TAG)
+
 up: apply reconcile smoke
 
 destroy:
@@ -47,6 +59,7 @@ validate: init
 # Construye las imagenes de los servicios propios desde los repos de codigo.
 # ORCH_DIR debe apuntar al repositorio orquestador (CONGENIA-ORCH).
 ORCH_DIR ?= ../ProjectUVG
+IMAGE_TAG ?= latest
 
 images:
 	docker build -t congenia/api:local        $(ORCH_DIR)/CONGENIA-M1-SERVER

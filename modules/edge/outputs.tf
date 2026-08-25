@@ -15,7 +15,13 @@ output "target_group_arns" {
 }
 
 output "listener_arn" {
-  value = aws_lb_listener.http.arn
+  description = "Listener 80. Con TLS encendido solo redirige."
+  value       = aws_lb_listener.http.arn
+}
+
+output "https_listener_arn" {
+  description = "Listener 443, o null si el entorno no tiene certificado."
+  value       = one(aws_lb_listener.https[*].arn)
 }
 
 output "rule_arns" {
