@@ -4,6 +4,9 @@ Infraestructura como codigo del proyecto CONGENIA. Un solo repositorio de
 Terraform que describe **toda** la plataforma y se despliega igual en local
 (MiniStack) que en AWS real.
 
+> Lo que **falta** para tener esto corriendo en AWS esta en [PLAN.md](PLAN.md),
+> con la lista de tareas al final.
+>
 > El *que* y el *como* de esta propuesta estan en [PROPUESTA.md](PROPUESTA.md).
 > El diagrama de lo que quedo corriendo esta en
 > [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md), y en version visual aqui:
