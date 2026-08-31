@@ -18,6 +18,46 @@ variable "service_names" {
   type        = list(string)
 }
 
+variable "docs_bucket_name" {
+  description = <<-DESC
+    Nombre del bucket de documentos. Si se pasa, el task role recibe permisos
+    de lectura/escritura acotados a ese bucket. null = sin politica (es lo que
+    usa envs/local, donde las llaves estaticas de MiniStack ya sirven).
+    Se recibe como variable y no leyendo el modulo `data` para no encadenar los
+    dos modulos: el cableado se hace en el entorno.
+  DESC
+  type        = string
+  default     = null
+}
+
+variable "secret_arns" {
+  description = <<-DESC
+    Secretos que las tareas referencian con el bloque `secrets`. El execution
+    role recibe `secretsmanager:GetSecretValue` solo sobre estos ARN.
+  DESC
+  type        = list(string)
+  default     = []
+}
+
+variable "immutable_image_tags" {
+  description = <<-DESC
+    Impide sobrescribir un tag ya publicado en ECR. Obliga a que cada version
+    tenga su propio tag, que es justo lo que se quiere en un registro
+    compartido. false en local, donde se reconstruye `:local` sin parar.
+  DESC
+  type        = bool
+  default     = false
+}
+
+variable "ephemeral" {
+  description = <<-DESC
+    Permite destruir los repositorios ECR aunque tengan imagenes publicadas.
+    Solo para entornos de prueba.
+  DESC
+  type        = bool
+  default     = false
+}
+
 variable "tags" {
   type    = map(string)
   default = {}

@@ -63,6 +63,11 @@ resource "aws_elasticache_cluster" "redis" {
 resource "aws_s3_bucket" "docs" {
   bucket = var.docs_bucket_name
 
+  # Con versionado activo, vaciar el bucket no basta para destruirlo: quedan
+  # las versiones y los marcadores de borrado. `force_destroy` las borra todas,
+  # por eso solo se enciende en entornos efimeros.
+  force_destroy = var.ephemeral
+
   tags = merge(var.tags, { Name = var.docs_bucket_name })
 }
 

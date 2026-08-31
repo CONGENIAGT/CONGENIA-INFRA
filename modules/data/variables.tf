@@ -56,6 +56,16 @@ variable "docs_bucket_name" {
   type        = string
 }
 
+variable "ephemeral" {
+  description = <<-DESC
+    Permite destruir el bucket de documentos aunque tenga contenido (incluidas
+    las versiones). Solo para entornos de prueba: en produccion la proteccion
+    por defecto evita borrar datos por accidente.
+  DESC
+  type        = bool
+  default     = false
+}
+
 variable "tags" {
   type    = map(string)
   default = {}

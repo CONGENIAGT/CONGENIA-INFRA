@@ -258,8 +258,11 @@ Y dos que no existen en local y hubo que resolver:
   nada, por eso nunca aparecio.
 - **El esquema no se carga solo.** Sin `docker-entrypoint-initdb.d`, RDS nace
   vacio. Se cargo con una tarea ECS de un solo uso: 23 tablas y los seeds.
+  Esa tarea ya vive en `modules/migrate` y se ejecuta con `make migrate`.
 
 `pdf-worker` es el unico que no levanto. La causa no es de infraestructura: la
-aplicacion busca el host `seaweedfs` porque `envs/aws` no pasa `S3_ENDPOINT`,
-y aun pasandolo el cliente S3 esta cableado a credenciales estaticas y no
-puede usar el rol IAM de la tarea.
+aplicacion buscaba el host `seaweedfs` porque `envs/aws` no pasaba
+`S3_ENDPOINT` —eso ya esta corregido— pero el cliente S3 sigue cableado a
+credenciales estaticas en el codigo y no puede usar el rol IAM de la tarea,
+que hoy si tiene politica sobre el bucket. Cerrarlo es cambio de codigo, no de
+infraestructura (PROPUESTA.md §9).
