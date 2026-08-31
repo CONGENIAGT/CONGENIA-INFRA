@@ -11,6 +11,5 @@ crash.log
 # CONGENIA-M1-SERVER, que es su fuente de verdad. No se versionan dos veces.
 docker/migrate/sql/
 
-# Nota: aqui habia un `*.md` con excepcion solo para README.md, que dejaba
-# PROPUESTA.md y docs/ARQUITECTURA.md fuera del repositorio pese a ser los
-# entregables del proyecto. La documentacion se versiona junto al codigo.
+*.md
+!README.md
