@@ -14,9 +14,9 @@ variable "name_prefix" {
 }
 
 # ── Puente contenedor -> host ───────────────────────────────────────────────
-# MiniStack publica el puerto del contenedor en el host y mapea
-# host.docker.internal dentro de cada tarea ECS. Es el mecanismo con el que
-# los servicios se encuentran entre si en local (en AWS real: Cloud Map).
+# MiniStack publica RDS, Redis y su gateway en el host. Las tareas llegan a
+# ellos mediante host.docker.internal; entre tareas ECS se usan alias Docker
+# configurados por scripts/reconcile-alb.sh (en AWS real se usa Cloud Map).
 variable "host_bridge" {
   type    = string
   default = "host.docker.internal"
@@ -40,7 +40,7 @@ variable "image_pdf_worker" {
 
 variable "image_keycloak" {
   type    = string
-  default = "quay.io/keycloak/keycloak:26.6.1"
+  default = "congenia/keycloak:local"
 }
 
 variable "image_rabbitmq" {
@@ -59,6 +59,12 @@ variable "postgres_password" {
 variable "keycloak_admin_password" {
   type      = string
   default   = "admin"
+  sensitive = true
+}
+
+variable "keycloak_sadc_client_secret" {
+  type      = string
+  default   = "congenia_local_sadc_secret"
   sensitive = true
 }
 

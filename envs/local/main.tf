@@ -17,7 +17,7 @@
 #
 #   (*) Amazon MQ existe en MiniStack pero solo como plano de control: no
 #       levanta broker real. RabbitMQ corre por tanto como tarea ECS.
-#       Ver PROPUESTA.md, seccion "Limites encontrados".
+#       MiniStack solo implementa el plano de control de Amazon MQ.
 # =============================================================================
 
 locals {
@@ -61,8 +61,14 @@ module "data" {
   data_sg_id       = module.network.data_sg_id
   db_password      = var.postgres_password
   docs_bucket_name = "${var.name_prefix}-docs"
-  multi_az         = false
-  tags             = local.tags
+  docs_cors_allowed_origins = [
+    "http://${module.edge.alb_dns_name}",
+    "http://localhost:4566",
+    "http://localhost:8080",
+  ]
+  multi_az      = false
+  allow_destroy = true
+  tags          = local.tags
 }
 
 module "platform" {
@@ -70,6 +76,7 @@ module "platform" {
 
   name_prefix   = var.name_prefix
   service_names = local.service_names
+  allow_destroy = true
   tags          = local.tags
 }
 
@@ -92,7 +99,7 @@ module "edge" {
     }
     api = {
       port         = local.ports.api
-      paths        = ["/v1/*", "/api/*", "/health"]
+      paths        = ["/v1/*", "/api/*", "/health*", "/openapi.json", "/docs*"]
       priority     = 10
       health_check = "/health"
     }
@@ -111,15 +118,16 @@ module "edge" {
 
 locals {
   # En AWS real: los endpoints de RDS/ElastiCache y los nombres Cloud Map.
-  # En local: MiniStack publica cada puerto en el host y expone
-  # host.docker.internal dentro de las tareas.
+  # En local: reconcile-alb.sh conecta las tareas a una red Docker auxiliar
+  # con alias estables para los servicios ECS. Los servicios publicados por
+  # MiniStack en el host siguen entrando por host.docker.internal.
   pg_host = module.data.db_address
   pg_port = module.data.db_port
 
   redis_url = "redis://${var.host_bridge}:${module.data.redis_port}"
 
-  keycloak_internal = "http://${var.host_bridge}:${local.ports.keycloak}"
-  rabbit_host       = var.host_bridge
+  keycloak_internal = "http://keycloak:${local.ports.keycloak}"
+  rabbit_host       = "rabbitmq"
 
   s3_endpoint        = "http://${var.host_bridge}:4566"
   s3_public_endpoint = "http://localhost:4566"
@@ -158,7 +166,7 @@ module "keycloak" {
   name_prefix    = var.name_prefix
   cluster_id     = module.platform.cluster_id
   image          = var.image_keycloak
-  command        = ["start-dev"]
+  command        = ["start-dev", "--import-realm"]
   container_port = local.ports.keycloak
   cpu            = "512"
   memory         = "1024"
@@ -166,7 +174,10 @@ module "keycloak" {
   environment = {
     KC_BOOTSTRAP_ADMIN_USERNAME = "admin"
     KC_BOOTSTRAP_ADMIN_PASSWORD = var.keycloak_admin_password
+    KEYCLOAK_SADC_CLIENT_SECRET = var.keycloak_sadc_client_secret
     KC_HTTP_ENABLED             = "true"
+    KC_PROXY_HEADERS            = "xforwarded"
+    KC_HOSTNAME                 = "http://${module.edge.alb_dns_name}"
     KC_HOSTNAME_STRICT          = "false"
   }
 
@@ -222,17 +233,20 @@ module "api" {
 
   environment = merge(local.db_env, local.rabbit_env, local.s3_env, {
     NODE_ENV                  = "production"
+    APP_ENV                   = "local"
     PORT                      = tostring(local.ports.api)
     APP_ENCRYPTION_KEY        = var.app_encryption_key
     REDIS_URL                 = local.redis_url
     AUTH_INTEGRATION_MODE     = "hybrid"
-    OIDC_ISSUER_URL           = "${local.keycloak_internal}/realms/congenia"
+    OIDC_ISSUER_URL           = "http://${module.edge.alb_dns_name}/realms/congenia"
     OIDC_JWKS_URL             = "${local.keycloak_internal}/realms/congenia/protocol/openid-connect/certs"
     OIDC_AUDIENCE             = "congenia-api"
+    SESSION_EXPIRY_MINUTES    = "60"
     FRONTEND_BASE_URL         = "http://${module.edge.alb_dns_name}"
     FRONTEND_FICHA_ROUTE      = "/"
     CORS_ORIGINS              = "http://${module.edge.alb_dns_name},http://localhost:4566"
     S3_PRESIGN_EXPIRY_SECONDS = "3600"
+    S3_UPLOAD_MAX_BYTES       = "10485760"
   })
 
   subnet_ids             = module.network.app_subnet_ids
@@ -260,6 +274,7 @@ module "pdf_worker" {
 
   environment = merge(local.db_env, local.rabbit_env, local.s3_env, {
     NODE_ENV                        = "production"
+    APP_ENV                         = "local"
     RABBITMQ_QUEUE_MAIN             = "consent.pdf.generate"
     RABBITMQ_QUEUE_DLQ              = "consent.pdf.generate.dlq"
     WORKER_PREFETCH                 = "3"
@@ -280,8 +295,8 @@ module "pdf_worker" {
 }
 
 # ── Frontend / ficha de registro ────────────────────────────────────────────
-# OJO: la imagen del frontend lleva VITE_API_BASE_URL quemado en build-time.
-# Cambiar el destino de la API exige reconstruir la imagen (ver PROPUESTA.md).
+# La imagen resuelve API_BASE_URL al arrancar; una misma version sirve en ambos
+# entornos sin hornear la URL de destino en el build.
 module "frontend" {
   source = "../../modules/ecs-service"
 

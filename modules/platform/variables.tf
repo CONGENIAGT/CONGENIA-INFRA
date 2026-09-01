@@ -49,10 +49,10 @@ variable "immutable_image_tags" {
   default     = false
 }
 
-variable "ephemeral" {
+variable "allow_destroy" {
   description = <<-DESC
     Permite destruir los repositorios ECR aunque tengan imagenes publicadas.
-    Solo para entornos de prueba.
+    Debe activarse solo durante un destroy confirmado.
   DESC
   type        = bool
   default     = false

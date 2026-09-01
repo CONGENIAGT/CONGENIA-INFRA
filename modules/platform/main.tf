@@ -30,7 +30,7 @@ resource "aws_ecr_repository" "this" {
   # Una imagen publicada como indice OCI deja manifiestos hijos sin etiqueta al
   # borrar el indice, y esos siguen bloqueando el borrado del repositorio.
   # `force_delete` evita tener que iterar a mano antes de cada destroy.
-  force_delete = var.ephemeral
+  force_delete = var.allow_destroy
 
   image_scanning_configuration {
     scan_on_push = true
@@ -104,13 +104,8 @@ resource "aws_iam_role" "task" {
   tags = var.tags
 }
 
-# Acceso al bucket de documentos, acotado a ese bucket. Sustituye a las llaves
-# estaticas que la aplicacion usa hoy contra SeaweedFS.
-#
-# OJO: la politica es condicion necesaria pero no suficiente. `src/lib/s3.ts`
-# construye el S3Client pasando siempre `credentials`, asi que el SDK nunca
-# consulta la cadena de credenciales del contenedor y el rol queda sin efecto.
-# El cambio de codigo vive en los repos de aplicacion (PROPUESTA.md §9).
+# Acceso al bucket de documentos, acotado a ese bucket. En AWS la aplicacion no
+# recibe llaves estaticas: el SDK usa la cadena de credenciales del task role.
 #
 # Se recibe el NOMBRE del bucket y no su ARN a proposito: el ARN solo se conoce
 # despues del apply, y `count` no admite valores desconocidos ("The count value

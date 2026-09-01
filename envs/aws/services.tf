@@ -10,11 +10,10 @@ locals {
   keycloak_internal = "http://keycloak.${local.ns}:${local.ports.keycloak}"
 
   db_env = {
-    POSTGRES_HOST     = module.data.db_address
-    POSTGRES_PORT     = tostring(module.data.db_port)
-    POSTGRES_DB       = module.data.db_name
-    POSTGRES_USER     = "congenia"
-    POSTGRES_PASSWORD = data.aws_secretsmanager_secret_version.db.secret_string
+    POSTGRES_HOST = module.data.db_address
+    POSTGRES_PORT = tostring(module.data.db_port)
+    POSTGRES_DB   = module.data.db_name
+    POSTGRES_USER = "congenia"
 
     # RDS exige TLS (rds.force_ssl=1) y el Pool de src/config/db.js no declara
     # `ssl`, asi que node-postgres lee esta variable. `no-verify` cifra sin
@@ -24,11 +23,10 @@ locals {
   }
 
   rabbit_env = {
-    RABBITMQ_HOST     = "rabbitmq.${local.ns}"
-    RABBITMQ_PORT     = tostring(local.ports.rabbitmq)
-    RABBITMQ_VHOST    = "/"
-    RABBITMQ_USER     = "congenia"
-    RABBITMQ_PASSWORD = random_password.rabbitmq.result
+    RABBITMQ_HOST  = "rabbitmq.${local.ns}"
+    RABBITMQ_PORT  = tostring(local.ports.rabbitmq)
+    RABBITMQ_VHOST = "/"
+    RABBITMQ_USER  = "congenia"
   }
 
   s3_env = {
@@ -49,6 +47,7 @@ locals {
     # desde que los dos servicios leen la variable con un parseo booleano de
     # verdad: antes usaban `z.coerce.boolean()`, que convierte "false" en true.
     S3_FORCE_PATH_STYLE = "false"
+    S3_UPLOAD_MAX_BYTES = tostring(10 * 1024 * 1024)
 
     # S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY siguen sin pasarse, y ahora eso
     # es lo correcto y no una limitacion: sin llaves, el SDK recorre su cadena
@@ -57,13 +56,9 @@ locals {
   }
 
   redis_env = {
-    # ElastiCache se crea sin `auth_token` y la URL va sin password, igual que
-    # en envs/local. Activar autenticacion obliga a
-    # `transit_encryption_enabled = true` y a cambiar el esquema a `rediss://`.
-    # Se deja sin auth: el cluster solo acepta el puerto 6379 desde el security
-    # group de aplicacion y la NACL de la subred de datos, y no tiene ruta a
-    # internet. Queda documentado como decision, no como olvido.
-    REDIS_URL = "redis://${module.data.redis_address}:${module.data.redis_port}"
+    REDIS_HOST = module.data.redis_address
+    REDIS_PORT = tostring(module.data.redis_port)
+    REDIS_TLS  = "true"
   }
 
   # Con TLS encendido el trafico entra por el dominio; mientras tanto, por el
@@ -78,20 +73,19 @@ module "keycloak" {
   name_prefix      = "${var.name_prefix}-${var.environment}"
   cpu_architecture = "X86_64"
   cluster_id       = module.platform.cluster_id
-  image            = "quay.io/keycloak/keycloak:26.6.1"
-  command          = ["start"]
+  image            = "${local.registry}/congenia/keycloak:${local.image_tag["keycloak"]}"
+  command          = ["start", "--import-realm"]
   container_port   = local.ports.keycloak
-  cpu              = "1024"
-  memory           = "2048"
+  cpu              = "512"
+  memory           = "1024"
+  desired_count    = var.enable_services ? lookup(var.service_desired_counts, "keycloak", 1) : 0
 
   environment = {
-    KC_DB          = "postgres"
-    KC_DB_URL      = "jdbc:postgresql://${module.data.db_address}:${module.data.db_port}/${module.data.db_name}?sslmode=require"
-    KC_DB_USERNAME = "congenia"
-    KC_DB_PASSWORD = data.aws_secretsmanager_secret_version.db.secret_string
-
+    KC_DB                       = "postgres"
+    KC_DB_URL                   = "jdbc:postgresql://${module.data.db_address}:${module.data.db_port}/${module.data.db_name}?sslmode=require"
+    KC_DB_USERNAME              = "congenia"
+    KC_DB_SCHEMA                = "keycloak"
     KC_BOOTSTRAP_ADMIN_USERNAME = "admin"
-    KC_BOOTSTRAP_ADMIN_PASSWORD = random_password.keycloak_admin.result
 
     # `start` (modo produccion) exige TLS a menos que se le diga que hay un
     # proxy delante terminando la conexion. Keycloak sigue hablando HTTP hacia
@@ -102,6 +96,12 @@ module "keycloak" {
     KC_PROXY_HEADERS   = "xforwarded"
     KC_HOSTNAME        = local.public_url
     KC_HOSTNAME_STRICT = "false"
+  }
+
+  secrets = {
+    KC_DB_PASSWORD              = aws_secretsmanager_secret.db.arn
+    KC_BOOTSTRAP_ADMIN_PASSWORD = aws_secretsmanager_secret.keycloak_admin.arn
+    KEYCLOAK_SADC_CLIENT_SECRET = aws_secretsmanager_secret.keycloak_sadc.arn
   }
 
   subnet_ids             = module.network.app_subnet_ids
@@ -125,15 +125,19 @@ module "rabbitmq" {
   image            = "rabbitmq:3.13-management-alpine"
   container_port   = local.ports.rabbitmq
   extra_ports      = [15672]
-  cpu              = "512"
-  memory           = "1024"
+  cpu              = "256"
+  memory           = "512"
+  desired_count    = var.enable_services ? lookup(var.service_desired_counts, "rabbitmq", 1) : 0
 
   # El usuario `guest` que trae la imagen solo acepta conexiones desde
   # localhost, asi que hay que crear uno propio o ningun servicio se conecta.
   environment = {
     RABBITMQ_DEFAULT_USER  = "congenia"
-    RABBITMQ_DEFAULT_PASS  = random_password.rabbitmq.result
     RABBITMQ_DEFAULT_VHOST = "/"
+  }
+
+  secrets = {
+    RABBITMQ_DEFAULT_PASS = aws_secretsmanager_secret.rabbitmq.arn
   }
 
   subnet_ids            = module.network.app_subnet_ids
@@ -155,25 +159,29 @@ module "api" {
   cluster_id       = module.platform.cluster_id
   image            = "${local.registry}/congenia/api:${local.image_tag["api"]}"
   container_port   = local.ports.api
-  cpu              = "1024"
-  memory           = "2048"
-  desired_count    = 2
+  cpu              = "512"
+  memory           = "1024"
+  desired_count    = var.enable_services ? lookup(var.service_desired_counts, "api", 1) : 0
 
   environment = merge(local.db_env, local.rabbit_env, local.s3_env, local.redis_env, {
-    NODE_ENV        = "production"
-    PORT            = tostring(local.ports.api)
-    OIDC_ISSUER_URL = "${local.keycloak_internal}/realms/congenia"
-    OIDC_JWKS_URL   = "${local.keycloak_internal}/realms/congenia/protocol/openid-connect/certs"
-    OIDC_AUDIENCE   = "congenia-api"
-
-    # Cifra el payload que viaja en el header X-Session-Token, cuya clave vive
-    # en Redis. Sin ella, POST /sessions/init lanza excepcion: conectar Redis
-    # sin esta variable deja el flujo a medias.
-    APP_ENCRYPTION_KEY = random_id.app_encryption_key.hex
+    NODE_ENV               = "production"
+    APP_ENV                = var.environment
+    PORT                   = tostring(local.ports.api)
+    OIDC_ISSUER_URL        = "${local.public_url}/realms/congenia"
+    OIDC_JWKS_URL          = "${local.keycloak_internal}/realms/congenia/protocol/openid-connect/certs"
+    OIDC_AUDIENCE          = "congenia-api"
+    SESSION_EXPIRY_MINUTES = "60"
 
     FRONTEND_BASE_URL = local.public_url
     CORS_ORIGINS      = local.public_url
   })
+
+  secrets = {
+    POSTGRES_PASSWORD  = aws_secretsmanager_secret.db.arn
+    RABBITMQ_PASSWORD  = aws_secretsmanager_secret.rabbitmq.arn
+    APP_ENCRYPTION_KEY = aws_secretsmanager_secret.app_encryption_key.arn
+    REDIS_PASSWORD     = aws_secretsmanager_secret.redis.arn
+  }
 
   subnet_ids             = module.network.app_subnet_ids
   security_group_ids     = [module.network.app_sg_id]
@@ -194,14 +202,15 @@ module "pdf_worker" {
   cpu_architecture = "X86_64"
   cluster_id       = module.platform.cluster_id
   image            = "${local.registry}/congenia/pdf-worker:${local.image_tag["pdf-worker"]}"
-  cpu              = "1024"
-  memory           = "2048"
-  desired_count    = 2
+  cpu              = "512"
+  memory           = "1024"
+  desired_count    = var.enable_services ? lookup(var.service_desired_counts, "pdf-worker", 1) : 0
 
   # Sin redis_env: el worker no tiene una sola referencia a Redis en su codigo
   # (src/config/env.ts ni siquiera declara la variable).
   environment = merge(local.db_env, local.rabbit_env, local.s3_env, {
     NODE_ENV            = "production"
+    APP_ENV             = var.environment
     RABBITMQ_QUEUE_MAIN = "consent.pdf.generate"
     RABBITMQ_QUEUE_DLQ  = "consent.pdf.generate.dlq"
     WORKER_PREFETCH     = "3"
@@ -211,6 +220,11 @@ module "pdf_worker" {
     # AccessDenied al intentar crearlo en vez de en un mensaje que se entienda.
     S3_AUTO_CREATE_BUCKET = "false"
   })
+
+  secrets = {
+    POSTGRES_PASSWORD = aws_secretsmanager_secret.db.arn
+    RABBITMQ_PASSWORD = aws_secretsmanager_secret.rabbitmq.arn
+  }
 
   subnet_ids         = module.network.app_subnet_ids
   security_group_ids = [module.network.app_sg_id]
@@ -230,8 +244,14 @@ module "frontend" {
   cluster_id       = module.platform.cluster_id
   image            = "${local.registry}/congenia/frontend:${local.image_tag["frontend"]}"
   container_port   = local.ports.frontend
-  cpu              = "512"
-  memory           = "1024"
+  cpu              = "256"
+  memory           = "512"
+  desired_count    = var.enable_services ? lookup(var.service_desired_counts, "frontend", 1) : 0
+
+  environment = {
+    API_BASE_URL = ""
+    APP_ENV      = var.environment
+  }
 
   subnet_ids             = module.network.app_subnet_ids
   security_group_ids     = [module.network.app_sg_id]

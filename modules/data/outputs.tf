@@ -15,11 +15,17 @@ output "db_name" {
 }
 
 output "redis_address" {
-  value = aws_elasticache_cluster.redis.cache_nodes[0].address
+  value = coalesce(
+    try(aws_elasticache_replication_group.redis[0].primary_endpoint_address, null),
+    try(aws_elasticache_cluster.redis[0].cache_nodes[0].address, null)
+  )
 }
 
 output "redis_port" {
-  value = aws_elasticache_cluster.redis.cache_nodes[0].port
+  value = coalesce(
+    try(aws_elasticache_replication_group.redis[0].port, null),
+    try(aws_elasticache_cluster.redis[0].cache_nodes[0].port, null)
+  )
 }
 
 output "docs_bucket" {

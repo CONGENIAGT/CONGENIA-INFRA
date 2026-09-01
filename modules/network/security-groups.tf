@@ -57,7 +57,7 @@ resource "aws_security_group" "app" {
   }
 
   # Salida abierta: la API necesita NurseraAPI y el Agent necesita el LLM.
-  # En AWS real esto se restringe con Network Firewall (ver PROPUESTA.md).
+  # Un control de egreso por dominio queda como endurecimiento posterior.
   egress {
     description = "Salida a internet via NAT"
     from_port   = 0

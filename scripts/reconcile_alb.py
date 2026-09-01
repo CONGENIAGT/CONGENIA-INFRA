@@ -92,6 +92,30 @@ def fix_rules(rule_arns, routes):
         print(f"  + {service}: {', '.join(paths)}")
 
 
+def clear_targets(tg_arn):
+    """Elimina targets previos para no conservar IPs Docker obsoletas."""
+    root = elb_call("DescribeTargetHealth", [("TargetGroupArn", tg_arn)])
+    params = [("TargetGroupArn", tg_arn)]
+    count = 0
+
+    for member in root.findall(f".//{ELB_NS}TargetHealthDescriptions/{ELB_NS}member"):
+        target = member.find(f"{ELB_NS}Target")
+        if target is None:
+            continue
+        id_el = target.find(f"{ELB_NS}Id")
+        port_el = target.find(f"{ELB_NS}Port")
+        if id_el is None or not id_el.text:
+            continue
+
+        count += 1
+        params.append((f"Targets.member.{count}.Id", id_el.text))
+        if port_el is not None and port_el.text:
+            params.append((f"Targets.member.{count}.Port", port_el.text))
+
+    if count:
+        elb_call("DeregisterTargets", params)
+
+
 def register_targets(cluster, prefix, target_groups):
     """Registra la IP de cada tarea ECS en su target group."""
     print("Targets del ALB:")
@@ -103,6 +127,8 @@ def register_targets(cluster, prefix, target_groups):
         root = elb_call("DescribeTargetGroups", [("TargetGroupArns.member.1", tg_arn)])
         port_el = root.find(f".//{ELB_NS}Port")
         port = int(port_el.text) if port_el is not None else 80
+
+        clear_targets(tg_arn)
 
         tasks = ecs_call("ListTasks", {
             "cluster": cluster, "serviceName": full_name,

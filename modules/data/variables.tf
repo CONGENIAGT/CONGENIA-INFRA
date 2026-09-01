@@ -41,6 +41,27 @@ variable "multi_az" {
   default     = false
 }
 
+variable "db_backup_retention_days" {
+  description = "Dias de backups automaticos de RDS."
+  type        = number
+  default     = 1
+
+  validation {
+    condition = (
+      floor(var.db_backup_retention_days) == var.db_backup_retention_days &&
+      var.db_backup_retention_days >= 0 &&
+      var.db_backup_retention_days <= 35
+    )
+    error_message = "db_backup_retention_days debe ser un numero entero entre 0 y 35."
+  }
+}
+
+variable "db_deletion_protection" {
+  description = "Impide borrar RDS hasta desactivar explicitamente la proteccion."
+  type        = bool
+  default     = false
+}
+
 variable "redis_version" {
   type    = string
   default = "7.1"
@@ -51,16 +72,42 @@ variable "redis_node_type" {
   default = "cache.t3.micro"
 }
 
+variable "redis_transit_encryption_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "redis_at_rest_encryption_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "redis_auth_token" {
+  type      = string
+  sensitive = true
+  default   = null
+}
+
+variable "redis_snapshot_retention_days" {
+  type    = number
+  default = 0
+}
+
 variable "docs_bucket_name" {
   description = "Bucket de imagenes y PDFs (reemplaza a SeaweedFS)."
   type        = string
 }
 
-variable "ephemeral" {
+variable "docs_cors_allowed_origins" {
+  description = "Origenes web exactos autorizados a hacer PUT con URL firmada."
+  type        = list(string)
+  default     = []
+}
+
+variable "allow_destroy" {
   description = <<-DESC
-    Permite destruir el bucket de documentos aunque tenga contenido (incluidas
-    las versiones). Solo para entornos de prueba: en produccion la proteccion
-    por defecto evita borrar datos por accidente.
+    Permite destruir el bucket aunque tenga contenido y omitir el snapshot
+    final de RDS. Debe activarse solo durante un destroy confirmado.
   DESC
   type        = bool
   default     = false

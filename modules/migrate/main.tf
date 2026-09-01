@@ -10,7 +10,7 @@
 # explicito (`make migrate`) y no parte del `apply`: Terraform no tiene un
 # recurso para "corre esto una vez", y resolverlo con un `null_resource` +
 # `local-exec` meteria logica imperativa dentro del estado y obligaria a tener
-# el AWS CLI en cualquiera que aplique. Ver PROPUESTA.md §8b.1.
+# el AWS CLI en cualquiera que aplique. El flujo esta en README.md.
 # =============================================================================
 
 resource "aws_ecs_task_definition" "this" {

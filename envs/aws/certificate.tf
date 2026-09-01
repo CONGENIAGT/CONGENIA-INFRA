@@ -8,7 +8,7 @@
 #   1. `make apply ENV=aws`  -> crea el certificado en PENDING_VALIDATION.
 #      `terraform output acm_validation_records` imprime el CNAME a crear.
 #   2. Crear ese CNAME en name.com. ACM lo detecta en minutos.
-#   3. `make apply ENV=aws TF_VAR_validate_certificate=true` -> espera a que
+#   3. `TF_VAR_validate_certificate=true make apply ENV=aws` -> espera a que
 #      el certificado quede ISSUED, levanta el listener 443, manda el 80 a
 #      redirigir y cambia las URLs publicas a https.
 #

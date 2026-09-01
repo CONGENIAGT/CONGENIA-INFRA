@@ -11,5 +11,8 @@ crash.log
 # CONGENIA-M1-SERVER, que es su fuente de verdad. No se versionan dos veces.
 docker/migrate/sql/
 
+__pycache__/
+*.pyc
+
 *.md
 !README.md

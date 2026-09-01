@@ -31,6 +31,13 @@ locals {
         }
       ]
 
+      secrets = [
+        for k, v in var.secrets : {
+          name      = k
+          valueFrom = v
+        }
+      ]
+
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -83,7 +90,7 @@ resource "aws_ecs_service" "this" {
 
   # En AWS real este bloque registra las tareas en el ALB automaticamente.
   # MiniStack acepta el bloque pero NO puebla el target group: por eso el
-  # entorno local ejecuta ademas scripts/register-targets.sh. Ver PROPUESTA.md.
+  # entorno local ejecuta ademas la reconciliacion descrita en README.md.
   dynamic "load_balancer" {
     for_each = var.attach_to_target_group == null ? [] : [1]
     content {

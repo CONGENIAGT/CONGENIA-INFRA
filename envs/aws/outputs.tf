@@ -44,6 +44,16 @@ output "public_url" {
   value       = local.public_url
 }
 
+output "sadc_client_secret_arn" {
+  description = "ARN para recuperar el client secret usado por el smoke OAuth, sin exponer su valor."
+  value       = aws_secretsmanager_secret.keycloak_sadc.arn
+}
+
+output "db_secret_arn" {
+  description = "ARN del password de PostgreSQL para recuperacion operativa controlada."
+  value       = aws_secretsmanager_secret.db.arn
+}
+
 # ── Carga del esquema ───────────────────────────────────────────────────────
 # Los consume scripts/migrate.sh (`make migrate`).
 

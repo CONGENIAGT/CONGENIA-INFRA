@@ -1,0 +1,10 @@
+# No aplicar este archivo tal como esta. Tras commitear cada repositorio,
+# genera los tags inmutables con ProjectUVG/scripts/release-plan.sh y publica
+# primero las cinco imagenes.
+image_tags = {
+  api        = "pending-publication"
+  frontend   = "pending-publication"
+  pdf-worker = "pending-publication"
+  keycloak   = "pending-publication"
+  migrate    = "pending-publication"
+}

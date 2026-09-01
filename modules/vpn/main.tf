@@ -9,7 +9,7 @@
 #                     RabbitMQ o Keycloak sin publicarlos en el ALB.
 #
 # Los dos vienen apagados por defecto. Ninguno se puede probar contra
-# MiniStack; los motivos exactos estan en cada variable y en PROPUESTA.md.
+# MiniStack; los motivos exactos estan en las variables del modulo.
 # =============================================================================
 
 # ── Sitio a sitio ───────────────────────────────────────────────────────────

@@ -1,9 +1,8 @@
 # =============================================================================
-# Endurecimiento en AWS real.
+# Controles de seguridad del entorno AWS oficial.
 #
-# Aqui SI van en true los interruptores que en local quedaron apagados por
-# limites del emulador. Es la diferencia entre los dos entornos, y esta
-# concentrada en este archivo.
+# WAF y Flow Logs son configurables porque ambos consumen creditos incluso con
+# menos de 1 TPS. Security groups y NACLs permanecen activos siempre.
 # =============================================================================
 
 module "security" {
@@ -13,12 +12,12 @@ module "security" {
   vpc_id      = module.network.vpc_id
   vpc_cidr    = module.network.vpc_cidr
 
-  enable_waf     = true
+  enable_waf     = var.enable_waf
   alb_arn        = module.edge.alb_arn
   waf_rate_limit = 2000
 
-  enable_flow_logs        = true
-  flow_log_retention_days = 30
+  enable_flow_logs        = var.enable_flow_logs
+  flow_log_retention_days = 7
 
   # En AWS el filtro association.subnet-id funciona, asi que las NACL si se
   # asocian a sus subredes.

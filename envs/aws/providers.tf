@@ -1,8 +1,8 @@
 # =============================================================================
 # Entorno AWS real.
 #
-# ESTADO: valida (`terraform validate`) pero NO se ha aplicado. Aplicarlo
-# genera costo real. Ver PROPUESTA.md, seccion "Camino a AWS real".
+# Aplicar este entorno modifica la infraestructura oficial y consume creditos
+# del AWS Free Plan. El flujo completo y sus guardas estan en README.md.
 #
 # Sin bloque `endpoints`: esa es la unica diferencia estructural con
 # envs/local. Los modulos son exactamente los mismos.

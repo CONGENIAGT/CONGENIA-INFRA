@@ -36,32 +36,72 @@ locals {
 
   # Tag de cada imagen, con el default como red de seguridad.
   image_tag = {
-    for servicio in ["api", "frontend", "pdf-worker", "migrate"] :
+    for servicio in ["api", "frontend", "pdf-worker", "keycloak", "migrate"] :
     servicio => lookup(var.image_tags, servicio, var.image_tag)
   }
 }
 
+# Guardas locales: fallan durante plan, antes de solicitar recursos a AWS. El
+# perfil puede relajarse explicitamente cuando cambie el plan de la cuenta.
+resource "terraform_data" "free_plan_guard" {
+  input = var.free_plan_mode
+
+  lifecycle {
+    precondition {
+      condition     = !var.free_plan_mode || !var.multi_az
+      error_message = "AWS Free Plan requiere multi_az=false en este stack."
+    }
+
+    precondition {
+      condition     = !var.free_plan_mode || contains(["db.t3.micro", "db.t4g.micro"], var.db_instance_class)
+      error_message = "AWS Free Plan requiere db.t3.micro o db.t4g.micro."
+    }
+
+    precondition {
+      condition     = !var.free_plan_mode || contains(["cache.t3.micro", "cache.t4g.micro"], var.redis_node_type)
+      error_message = "El perfil de bajo consumo requiere Redis cache.t3.micro o cache.t4g.micro."
+    }
+
+    precondition {
+      condition     = !var.free_plan_mode || var.db_backup_retention_days <= 1
+      error_message = "AWS Free Plan limita la retencion automatica de RDS a un dia en esta cuenta."
+    }
+
+    precondition {
+      condition = !var.free_plan_mode || alltrue([
+        for count in values(var.service_desired_counts) : count <= 1
+      ])
+      error_message = "El perfil menor a 1 TPS permite como maximo una tarea por servicio."
+    }
+  }
+}
+
 # ── Secretos ────────────────────────────────────────────────────────────────
-# Se crean vacios por Terraform; los valores se cargan una vez, fuera del
-# control de versiones (`aws secretsmanager put-secret-value`).
+# Los valores los genera Terraform y se guardan en Secrets Manager. El estado
+# remoto cifrado es requisito porque los recursos `random_*` son sensibles.
+
+resource "random_password" "db" {
+  length  = 32
+  special = false
+}
 
 resource "aws_secretsmanager_secret" "db" {
   name = "${var.name_prefix}/${var.environment}/postgres"
   tags = local.tags
 
-  # Sin ventana de recuperacion: de lo contrario `destroy` deja el nombre
-  # reservado 30 dias y el siguiente `apply` falla al recrearlo.
-  recovery_window_in_days = 0
+  # En operacion normal un borrado accidental deja 30 dias para restaurarlo.
+  # El flujo automatizado de destroy elimina de inmediato solo tras confirmar.
+  recovery_window_in_days = var.allow_destroy ? 0 : 30
 }
 
-data "aws_secretsmanager_secret_version" "db" {
-  secret_id = aws_secretsmanager_secret.db.id
+resource "aws_secretsmanager_secret_version" "db" {
+  secret_id     = aws_secretsmanager_secret.db.id
+  secret_string = random_password.db.result
 }
 
 # ── Credenciales internas ───────────────────────────────────────────────────
-# A diferencia del password de Postgres (que se carga a mano porque el equipo
-# lo necesita para conectarse), estas solo las consumen los contenedores. Las
-# genera Terraform y quedan en Secrets Manager para poder auditarlas.
+# Terraform genera todas estas credenciales; los operadores recuperan una solo
+# cuando un procedimiento (por ejemplo el smoke OAuth) lo exige.
 
 resource "random_password" "rabbitmq" {
   length  = 24
@@ -70,7 +110,7 @@ resource "random_password" "rabbitmq" {
 
 resource "aws_secretsmanager_secret" "rabbitmq" {
   name                    = "${var.name_prefix}/${var.environment}/rabbitmq"
-  recovery_window_in_days = 0
+  recovery_window_in_days = var.allow_destroy ? 0 : 30
   tags                    = local.tags
 }
 
@@ -88,7 +128,7 @@ resource "random_id" "app_encryption_key" {
 
 resource "aws_secretsmanager_secret" "app_encryption_key" {
   name                    = "${var.name_prefix}/${var.environment}/app-encryption-key"
-  recovery_window_in_days = 0
+  recovery_window_in_days = var.allow_destroy ? 0 : 30
   tags                    = local.tags
 }
 
@@ -104,13 +144,45 @@ resource "random_password" "keycloak_admin" {
 
 resource "aws_secretsmanager_secret" "keycloak_admin" {
   name                    = "${var.name_prefix}/${var.environment}/keycloak-admin"
-  recovery_window_in_days = 0
+  recovery_window_in_days = var.allow_destroy ? 0 : 30
   tags                    = local.tags
 }
 
 resource "aws_secretsmanager_secret_version" "keycloak_admin" {
   secret_id     = aws_secretsmanager_secret.keycloak_admin.id
   secret_string = random_password.keycloak_admin.result
+}
+
+resource "random_password" "keycloak_sadc" {
+  length  = 32
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "keycloak_sadc" {
+  name                    = "${var.name_prefix}/${var.environment}/keycloak-sadc-client"
+  recovery_window_in_days = var.allow_destroy ? 0 : 30
+  tags                    = local.tags
+}
+
+resource "aws_secretsmanager_secret_version" "keycloak_sadc" {
+  secret_id     = aws_secretsmanager_secret.keycloak_sadc.id
+  secret_string = random_password.keycloak_sadc.result
+}
+
+resource "random_password" "redis" {
+  length  = 32
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "redis" {
+  name                    = "${var.name_prefix}/${var.environment}/redis"
+  recovery_window_in_days = var.allow_destroy ? 0 : 30
+  tags                    = local.tags
+}
+
+resource "aws_secretsmanager_secret_version" "redis" {
+  secret_id     = aws_secretsmanager_secret.redis.id
+  secret_string = random_password.redis.result
 }
 
 module "network" {
@@ -122,7 +194,10 @@ module "network" {
   enable_nat_gateway = true
   enable_s3_endpoint = true
 
-  interface_endpoints = ["ecr.api", "ecr.dkr", "logs", "secretsmanager"]
+  # El endpoint gateway de S3 no tiene costo adicional. Los endpoints de
+  # interface se dejan opcionales porque el NAT ya cubre estas dependencias y
+  # cada endpoint se factura por hora en cada AZ.
+  interface_endpoints = var.enable_private_endpoints ? ["ecr.api", "ecr.dkr", "logs", "secretsmanager"] : []
 
   tags = local.tags
 }
@@ -130,16 +205,23 @@ module "network" {
 module "data" {
   source = "../../modules/data"
 
-  name_prefix       = "${var.name_prefix}-${var.environment}"
-  data_subnet_ids   = module.network.data_subnet_ids
-  data_sg_id        = module.network.data_sg_id
-  db_password       = data.aws_secretsmanager_secret_version.db.secret_string
-  db_instance_class = var.db_instance_class
-  redis_node_type   = var.redis_node_type
-  multi_az          = var.multi_az
-  docs_bucket_name  = local.docs_bucket_name
-  ephemeral         = var.ephemeral
-  tags              = local.tags
+  name_prefix                      = "${var.name_prefix}-${var.environment}"
+  data_subnet_ids                  = module.network.data_subnet_ids
+  data_sg_id                       = module.network.data_sg_id
+  db_password                      = random_password.db.result
+  db_instance_class                = var.db_instance_class
+  redis_node_type                  = var.redis_node_type
+  multi_az                         = var.multi_az
+  docs_bucket_name                 = local.docs_bucket_name
+  docs_cors_allowed_origins        = [local.public_url]
+  db_backup_retention_days         = var.db_backup_retention_days
+  db_deletion_protection           = !var.allow_destroy
+  redis_transit_encryption_enabled = true
+  redis_at_rest_encryption_enabled = true
+  redis_auth_token                 = random_password.redis.result
+  redis_snapshot_retention_days    = 0
+  allow_destroy                    = var.allow_destroy
+  tags                             = local.tags
 }
 
 module "platform" {
@@ -154,6 +236,7 @@ module "platform" {
     "congenia/api",
     "congenia/frontend",
     "congenia/pdf-worker",
+    "congenia/keycloak",
     "congenia/migrate",
   ]
 
@@ -161,12 +244,17 @@ module "platform" {
   # `platform`, para no encadenar los dos modulos: el cableado vive aqui.
   docs_bucket_name = local.docs_bucket_name
 
-  # Unico secreto que una tarea referencia con el bloque `secrets` (la de
-  # migracion). Los demas se inyectan como environment desde Terraform.
-  secret_arns = [aws_secretsmanager_secret.db.arn]
+  secret_arns = [
+    aws_secretsmanager_secret.db.arn,
+    aws_secretsmanager_secret.rabbitmq.arn,
+    aws_secretsmanager_secret.app_encryption_key.arn,
+    aws_secretsmanager_secret.keycloak_admin.arn,
+    aws_secretsmanager_secret.keycloak_sadc.arn,
+    aws_secretsmanager_secret.redis.arn,
+  ]
 
   immutable_image_tags = true
-  ephemeral            = var.ephemeral
+  allow_destroy        = var.allow_destroy
   tags                 = local.tags
 }
 
@@ -192,7 +280,7 @@ module "edge" {
     }
     api = {
       port         = local.ports.api
-      paths        = ["/v1/*", "/api/*", "/health"]
+      paths        = ["/v1/*", "/api/*", "/health*", "/openapi.json", "/docs*"]
       priority     = 10
       health_check = "/health"
     }

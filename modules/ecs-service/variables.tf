@@ -47,6 +47,12 @@ variable "environment" {
   default = {}
 }
 
+variable "secrets" {
+  description = "Mapa nombre de variable -> ARN de Secrets Manager para el contenedor."
+  type        = map(string)
+  default     = {}
+}
+
 variable "desired_count" {
   type    = number
   default = 1
