@@ -42,7 +42,7 @@ ensure_standard_scope() {
   source_id="$(scope_id "$master_scopes_url" "$scope_name")"
   source_json="$(curl -fsS "${auth[@]}" "${master_scopes_url}/${source_id}")"
   target_id="$(scope_id "$target_scopes_url" "$scope_name" || true)"
-  scope_payload="$(jq 'del(.id, .protocolMappers)' <<<"$source_json")"
+  scope_payload="$(jq -a 'del(.id, .protocolMappers)' <<<"$source_json")"
 
   if [[ -z "$target_id" ]]; then
     curl -fsS -o /dev/null -X POST "${auth[@]}" "$target_scopes_url" -d "$scope_payload"
@@ -63,7 +63,7 @@ ensure_standard_scope() {
     } | jq -er --arg name "$mapper_name" '.[] | select(.name == $name) | .id' | head -n 1 || true)"
 
     if [[ -z "$mapper_id" ]]; then
-      mapper_payload="$(jq 'del(.id)' <<<"$mapper")"
+      mapper_payload="$(jq -a 'del(.id)' <<<"$mapper")"
       curl -fsS -o /dev/null -X POST "${auth[@]}" \
         "${target_scopes_url}/${target_id}/protocol-mappers/models" -d "$mapper_payload"
     else
@@ -88,7 +88,7 @@ ensure_standard_scope() {
     }
 }
 
-for standard_scope in profile email roles; do
+for standard_scope in basic profile email roles; do
   ensure_standard_scope "$standard_scope"
 done
 
@@ -97,7 +97,7 @@ if ! curl -fsS -o /dev/null "${auth[@]}" "${realm_url}/roles/medico" 2>/dev/null
     -d '{"name":"medico","description":"Puede iniciar fichas clinicas desde el cliente web"}'
 fi
 
-client_json="$(jq -nc --arg origin "$base_url" '{
+client_json="$(jq -nca --arg origin "$base_url" '{
   clientId: "congenia-web",
   name: "CONGENIA — Aplicacion web",
   enabled: true,
@@ -151,7 +151,7 @@ else
   curl -fsS -o /dev/null -X PUT "${auth[@]}" "${realm_url}/clients/${client_uuid}" -d "$client_json"
 fi
 
-for standard_scope in profile email roles; do
+for standard_scope in basic profile email roles; do
   standard_scope_id="$(scope_id "$target_scopes_url" "$standard_scope")"
   curl -fsS -o /dev/null -X PUT "${auth[@]}" \
     "${realm_url}/clients/${client_uuid}/default-client-scopes/${standard_scope_id}"
@@ -159,7 +159,7 @@ done
 
 user_uuid="$(curl -fsS "${auth[@]}" "${realm_url}/users?exact=true&username=${medico_user}" | jq -er '.[0].id // empty' || true)"
 if [[ -z "$user_uuid" ]]; then
-  user_json="$(jq -nc \
+  user_json="$(jq -nca \
     --arg username "$medico_user" \
     --arg name "$medico_name" \
     --arg specialty "$medico_specialty" \
