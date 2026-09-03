@@ -169,6 +169,22 @@ resource "aws_secretsmanager_secret_version" "keycloak_sadc" {
   secret_string = random_password.keycloak_sadc.result
 }
 
+resource "random_password" "keycloak_medico_initial" {
+  length  = 24
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "keycloak_medico_initial" {
+  name                    = "${var.name_prefix}/${var.environment}/keycloak-medico-initial"
+  recovery_window_in_days = var.allow_destroy ? 0 : 30
+  tags                    = local.tags
+}
+
+resource "aws_secretsmanager_secret_version" "keycloak_medico_initial" {
+  secret_id     = aws_secretsmanager_secret.keycloak_medico_initial.id
+  secret_string = random_password.keycloak_medico_initial.result
+}
+
 resource "random_password" "redis" {
   length  = 32
   special = false
@@ -250,6 +266,7 @@ module "platform" {
     aws_secretsmanager_secret.app_encryption_key.arn,
     aws_secretsmanager_secret.keycloak_admin.arn,
     aws_secretsmanager_secret.keycloak_sadc.arn,
+    aws_secretsmanager_secret.keycloak_medico_initial.arn,
     aws_secretsmanager_secret.redis.arn,
   ]
 

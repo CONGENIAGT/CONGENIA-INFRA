@@ -156,12 +156,12 @@ variable "domain_name" {
     el ALB se queda con el listener 80.
   DESC
   type        = string
-  default     = "congenia.app"
+  default     = "cogenia.app"
 }
 
 variable "subject_alternative_names" {
   description = <<-DESC
-    Nombres adicionales del certificado. Agregar "*.congenia.app" no cuesta un
+    Nombres adicionales del certificado. Agregar "*.cogenia.app" no cuesta un
     registro de validacion extra: ACM reutiliza el mismo CNAME del apex.
   DESC
   type        = list(string)

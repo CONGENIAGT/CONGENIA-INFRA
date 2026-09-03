@@ -92,27 +92,30 @@ module "keycloak" {
     # adentro incluso con el listener 443 puesto: quien termina TLS es el ALB,
     # y Keycloak se entera por las cabeceras X-Forwarded-*.
     # Sin esto: "Key material not provided to setup HTTPS" y exit 2.
-    KC_HTTP_ENABLED    = "true"
-    KC_PROXY_HEADERS   = "xforwarded"
-    KC_HOSTNAME        = local.public_url
-    KC_HOSTNAME_STRICT = "false"
+    KC_HTTP_ENABLED     = "true"
+    KC_PROXY_HEADERS    = "xforwarded"
+    KC_HOSTNAME         = local.public_url
+    KC_HOSTNAME_STRICT  = "false"
+    CONGENIA_PUBLIC_URL = local.public_url
   }
 
   secrets = {
-    KC_DB_PASSWORD              = aws_secretsmanager_secret.db.arn
-    KC_BOOTSTRAP_ADMIN_PASSWORD = aws_secretsmanager_secret.keycloak_admin.arn
-    KEYCLOAK_SADC_CLIENT_SECRET = aws_secretsmanager_secret.keycloak_sadc.arn
+    KC_DB_PASSWORD                   = aws_secretsmanager_secret.db.arn
+    KC_BOOTSTRAP_ADMIN_PASSWORD      = aws_secretsmanager_secret.keycloak_admin.arn
+    KEYCLOAK_SADC_CLIENT_SECRET      = aws_secretsmanager_secret.keycloak_sadc.arn
+    KEYCLOAK_MEDICO_INITIAL_PASSWORD = aws_secretsmanager_secret.keycloak_medico_initial.arn
   }
 
-  subnet_ids             = module.network.app_subnet_ids
-  security_group_ids     = [module.network.app_sg_id]
-  execution_role_arn     = module.platform.execution_role_arn
-  task_role_arn          = module.platform.task_role_arn
-  log_group_name         = module.platform.log_group_names["keycloak"]
-  region                 = var.region
-  attach_to_target_group = module.edge.target_group_arns["keycloak"]
-  service_discovery_arn  = aws_service_discovery_service.this["keycloak"].arn
-  tags                   = local.tags
+  subnet_ids                        = module.network.app_subnet_ids
+  security_group_ids                = [module.network.app_sg_id]
+  execution_role_arn                = module.platform.execution_role_arn
+  task_role_arn                     = module.platform.task_role_arn
+  log_group_name                    = module.platform.log_group_names["keycloak"]
+  region                            = var.region
+  attach_to_target_group            = module.edge.target_group_arns["keycloak"]
+  health_check_grace_period_seconds = 300
+  service_discovery_arn             = aws_service_discovery_service.this["keycloak"].arn
+  tags                              = local.tags
 }
 
 module "rabbitmq" {
@@ -170,6 +173,7 @@ module "api" {
     OIDC_ISSUER_URL        = "${local.public_url}/realms/congenia"
     OIDC_JWKS_URL          = "${local.keycloak_internal}/realms/congenia/protocol/openid-connect/certs"
     OIDC_AUDIENCE          = "congenia-api"
+    OIDC_WEB_CLIENT_ID     = "congenia-web"
     SESSION_EXPIRY_MINUTES = "60"
 
     FRONTEND_BASE_URL = local.public_url
@@ -249,8 +253,10 @@ module "frontend" {
   desired_count    = var.enable_services ? lookup(var.service_desired_counts, "frontend", 1) : 0
 
   environment = {
-    API_BASE_URL = ""
-    APP_ENV      = var.environment
+    API_BASE_URL   = ""
+    APP_ENV        = var.environment
+    OIDC_AUTHORITY = "${local.public_url}/realms/congenia"
+    OIDC_CLIENT_ID = "congenia-web"
   }
 
   subnet_ids             = module.network.app_subnet_ids

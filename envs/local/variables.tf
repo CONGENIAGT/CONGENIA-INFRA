@@ -68,6 +68,13 @@ variable "keycloak_sadc_client_secret" {
   sensitive = true
 }
 
+variable "keycloak_medico_initial_password" {
+  description = "Password temporal del medico inicial en el realm local."
+  type        = string
+  sensitive   = true
+  default     = "congenia_local_medico_password"
+}
+
 variable "rabbitmq_user" {
   type    = string
   default = "congenia"

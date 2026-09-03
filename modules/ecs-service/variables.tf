@@ -89,6 +89,12 @@ variable "attach_to_target_group" {
   default     = null
 }
 
+variable "health_check_grace_period_seconds" {
+  description = "Tiempo que ECS ignora health checks fallidos mientras arranca una tarea asociada al ALB."
+  type        = number
+  default     = 0
+}
+
 variable "launch_type" {
   description = <<-DESC
     FARGATE  -> sin servidores que administrar, se paga por tarea.

@@ -76,11 +76,12 @@ resource "aws_ecs_task_definition" "this" {
 }
 
 resource "aws_ecs_service" "this" {
-  name            = "${var.name_prefix}-${var.name}"
-  cluster         = var.cluster_id
-  task_definition = aws_ecs_task_definition.this.arn
-  desired_count   = var.desired_count
-  launch_type     = var.launch_type
+  name                              = "${var.name_prefix}-${var.name}"
+  cluster                           = var.cluster_id
+  task_definition                   = aws_ecs_task_definition.this.arn
+  desired_count                     = var.desired_count
+  launch_type                       = var.launch_type
+  health_check_grace_period_seconds = var.attach_to_target_group == null ? 0 : var.health_check_grace_period_seconds
 
   network_configuration {
     subnets          = var.subnet_ids

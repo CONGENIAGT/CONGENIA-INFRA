@@ -1,7 +1,7 @@
 # =============================================================================
 # Certificado TLS del punto de entrada publico.
 #
-# El dominio (congenia.app) esta registrado en name.com, no en Route 53, asi
+# El dominio (cogenia.app) esta registrado en name.com, no en Route 53, asi
 # que Terraform no puede crear los registros de validacion: hay que pegarlos a
 # mano en el panel del registrador. Por eso el proceso es de dos aplicaciones:
 #
@@ -16,7 +16,7 @@
 # creara desde el primer apply, el apply quedaria colgado hasta 60 minutos
 # esperando un registro DNS que todavia no existe.
 #
-# Si algun dia se delegan los nameservers de congenia.app a Route 53, esto se
+# Si algun dia se delegan los nameservers de cogenia.app a Route 53, esto se
 # simplifica: los registros de validacion y el ALIAS al ALB los crearia
 # Terraform y el paso manual desaparece.
 # =============================================================================

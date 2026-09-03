@@ -49,6 +49,16 @@ output "sadc_client_secret_arn" {
   value       = aws_secretsmanager_secret.keycloak_sadc.arn
 }
 
+output "keycloak_admin_secret_arn" {
+  description = "ARN del password del administrador bootstrap de Keycloak."
+  value       = aws_secretsmanager_secret.keycloak_admin.arn
+}
+
+output "keycloak_medico_initial_secret_arn" {
+  description = "ARN del password temporal del usuario medico.inicial; Keycloak obliga a cambiarlo al primer acceso."
+  value       = aws_secretsmanager_secret.keycloak_medico_initial.arn
+}
+
 output "db_secret_arn" {
   description = "ARN del password de PostgreSQL para recuperacion operativa controlada."
   value       = aws_secretsmanager_secret.db.arn

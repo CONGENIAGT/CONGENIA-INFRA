@@ -172,13 +172,15 @@ module "keycloak" {
   memory         = "1024"
 
   environment = {
-    KC_BOOTSTRAP_ADMIN_USERNAME = "admin"
-    KC_BOOTSTRAP_ADMIN_PASSWORD = var.keycloak_admin_password
-    KEYCLOAK_SADC_CLIENT_SECRET = var.keycloak_sadc_client_secret
-    KC_HTTP_ENABLED             = "true"
-    KC_PROXY_HEADERS            = "xforwarded"
-    KC_HOSTNAME                 = "http://${module.edge.alb_dns_name}"
-    KC_HOSTNAME_STRICT          = "false"
+    KC_BOOTSTRAP_ADMIN_USERNAME      = "admin"
+    KC_BOOTSTRAP_ADMIN_PASSWORD      = var.keycloak_admin_password
+    KEYCLOAK_SADC_CLIENT_SECRET      = var.keycloak_sadc_client_secret
+    KEYCLOAK_MEDICO_INITIAL_PASSWORD = var.keycloak_medico_initial_password
+    KC_HTTP_ENABLED                  = "true"
+    KC_PROXY_HEADERS                 = "xforwarded"
+    KC_HOSTNAME                      = "http://${module.edge.alb_dns_name}"
+    KC_HOSTNAME_STRICT               = "false"
+    CONGENIA_PUBLIC_URL              = "http://${module.edge.alb_dns_name}"
   }
 
   subnet_ids             = module.network.app_subnet_ids
@@ -241,6 +243,7 @@ module "api" {
     OIDC_ISSUER_URL           = "http://${module.edge.alb_dns_name}/realms/congenia"
     OIDC_JWKS_URL             = "${local.keycloak_internal}/realms/congenia/protocol/openid-connect/certs"
     OIDC_AUDIENCE             = "congenia-api"
+    OIDC_WEB_CLIENT_ID        = "congenia-web"
     SESSION_EXPIRY_MINUTES    = "60"
     FRONTEND_BASE_URL         = "http://${module.edge.alb_dns_name}"
     FRONTEND_FICHA_ROUTE      = "/"
@@ -307,6 +310,13 @@ module "frontend" {
   container_port = local.ports.frontend
   cpu            = "256"
   memory         = "512"
+
+  environment = {
+    API_BASE_URL   = ""
+    APP_ENV        = "local"
+    OIDC_AUTHORITY = "http://${module.edge.alb_dns_name}/realms/congenia"
+    OIDC_CLIENT_ID = "congenia-web"
+  }
 
   subnet_ids             = module.network.app_subnet_ids
   security_group_ids     = [module.network.app_sg_id]
