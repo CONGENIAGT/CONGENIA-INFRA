@@ -17,7 +17,3 @@ output "task_role_arn" {
 output "log_group_names" {
   value = { for k, v in aws_cloudwatch_log_group.this : k => v.name }
 }
-
-output "ecr_repository_urls" {
-  value = { for k, v in aws_ecr_repository.this : k => v.repository_url }
-}

@@ -2,12 +2,6 @@ variable "name_prefix" {
   type = string
 }
 
-variable "ecr_repositories" {
-  description = "Repos ECR para las imagenes propias de CONGENIA."
-  type        = list(string)
-  default     = ["congenia/api", "congenia/frontend", "congenia/pdf-worker"]
-}
-
 variable "log_retention_days" {
   type    = number
   default = 7
@@ -21,8 +15,7 @@ variable "service_names" {
 variable "docs_bucket_name" {
   description = <<-DESC
     Nombre del bucket de documentos. Si se pasa, el task role recibe permisos
-    de lectura/escritura acotados a ese bucket. null = sin politica (es lo que
-    usa envs/local, donde las llaves estaticas de MiniStack ya sirven).
+    de lectura/escritura acotados a ese bucket. null = sin politica.
     Se recibe como variable y no leyendo el modulo `data` para no encadenar los
     dos modulos: el cableado se hace en el entorno.
   DESC
@@ -37,25 +30,6 @@ variable "secret_arns" {
   DESC
   type        = list(string)
   default     = []
-}
-
-variable "immutable_image_tags" {
-  description = <<-DESC
-    Impide sobrescribir un tag ya publicado en ECR. Obliga a que cada version
-    tenga su propio tag, que es justo lo que se quiere en un registro
-    compartido. false en local, donde se reconstruye `:local` sin parar.
-  DESC
-  type        = bool
-  default     = false
-}
-
-variable "allow_destroy" {
-  description = <<-DESC
-    Permite destruir los repositorios ECR aunque tengan imagenes publicadas.
-    Debe activarse solo durante un destroy confirmado.
-  DESC
-  type        = bool
-  default     = false
 }
 
 variable "tags" {

@@ -129,10 +129,9 @@ variable "cpu_architecture" {
 
 variable "service_discovery_arn" {
   description = <<-DESC
-    ARN de un servicio de Cloud Map para registrar la tarea en DNS privado.
-    Se usa en AWS real para que los servicios se encuentren por nombre.
-    En local queda en null: MiniStack no resuelve Cloud Map desde los
-    contenedores y el wiring se hace por host.docker.internal.
+    ARN de un servicio de Cloud Map para registrar la tarea en DNS privado,
+    de modo que los servicios se encuentren por nombre y no por IP. null en
+    los que nadie necesita resolver (frontend y pdf-worker).
   DESC
   type        = string
   default     = null

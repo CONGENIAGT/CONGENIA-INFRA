@@ -1,0 +1,48 @@
+# =============================================================================
+# Verificacion de los PRs de infraestructura.
+#
+# Formaliza lo que hasta ahora era disciplina manual antes de cada commit:
+# formato consistente, configuracion valida y scripts sin errores de sintaxis.
+#
+# `validate` corre con `-backend=false`: comprueba el grafo y los tipos sin
+# tocar el estado remoto ni necesitar credenciales de AWS. Un PR no deberia
+# poder leer el estado de produccion.
+# =============================================================================
+name: terraform-check
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: Formato
+        run: terraform fmt -check -recursive -diff .
+
+      - name: Validar cada entorno
+        run: |
+          set -euo pipefail
+          for entorno in envs/*; do
+            [ -d "$entorno" ] || continue
+            echo "── $entorno"
+            terraform -chdir="$entorno" init -backend=false -input=false >/dev/null
+            terraform -chdir="$entorno" validate
+          done
+
+      - name: Sintaxis de los scripts
+        run: bash -n scripts/*.sh

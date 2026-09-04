@@ -89,9 +89,9 @@ resource "aws_ecs_service" "this" {
     assign_public_ip = false
   }
 
-  # En AWS real este bloque registra las tareas en el ALB automaticamente.
-  # MiniStack acepta el bloque pero NO puebla el target group: por eso el
-  # entorno local ejecuta ademas la reconciliacion descrita en README.md.
+  # Este bloque registra y da de baja las IPs de las tareas en el target group
+  # automaticamente. No hace falta ningun paso posterior: la IP de la tarea no
+  # se conoce en tiempo de plan, y es ECS quien la publica al arrancar.
   dynamic "load_balancer" {
     for_each = var.attach_to_target_group == null ? [] : [1]
     content {

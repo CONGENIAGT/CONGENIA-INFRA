@@ -33,3 +33,8 @@ output "routes" {
   description = "Eco de las rutas configuradas, para la reconciliacion local."
   value       = { for k, v in var.routes : k => v.paths }
 }
+
+output "alb_zone_id" {
+  description = "Zona alojada del propio ALB. La necesita el registro ALIAS de Route 53."
+  value       = aws_lb.this.zone_id
+}

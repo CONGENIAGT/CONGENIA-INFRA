@@ -60,10 +60,8 @@ variable "enable_nacls" {
 
 variable "associate_nacls" {
   description = <<-DESC
-    Asocia cada NACL a sus subredes. Debe quedar en false contra MiniStack:
-    su DescribeNetworkAcls ignora el filtro `association.subnet-id` y devuelve
-    todas las NACL de la cuenta, con lo que el provider aborta con
-    "too many results: wanted 1". En AWS real va en true.
+    Asocia cada NACL a sus subredes. Sin esto las NACL existen pero no filtran
+    nada: es la diferencia entre declararlas y aplicarlas.
   DESC
   type        = bool
   default     = false

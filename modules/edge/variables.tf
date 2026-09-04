@@ -30,8 +30,7 @@ variable "routes" {
 variable "certificate_arn" {
   description = <<-DESC
     Certificado ACM ya emitido (ISSUED) para el listener 443. null = solo
-    listener 80, que es lo que usa envs/local: MiniStack no emula TLS en el
-    ALB. Cuando se pasa, el 80 deja de servir y redirige al 443.
+    listener 80. Cuando se pasa, el 80 deja de servir y redirige al 443.
   DESC
   type        = string
   default     = null

@@ -39,9 +39,9 @@ resource "aws_network_acl" "this" {
   })
 }
 
-# La asociacion se separa del recurso principal a proposito: `subnet_ids`
-# dentro de `aws_network_acl` dispara la misma lectura filtrada que MiniStack
-# no soporta. Ver la variable `associate_nacls`.
+# La asociacion se separa del recurso principal a proposito: declarar
+# `subnet_ids` dentro de `aws_network_acl` obliga a recrear la NACL entera cada
+# vez que cambia el conjunto de subredes. Ver la variable `associate_nacls`.
 resource "aws_network_acl_association" "this" {
   for_each = local.nacl_assoc
 

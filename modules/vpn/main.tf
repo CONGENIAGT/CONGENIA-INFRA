@@ -8,8 +8,8 @@
 #   client vpn    ->  una persona del equipo alcanza RDS, la consola de
 #                     RabbitMQ o Keycloak sin publicarlos en el ALB.
 #
-# Los dos vienen apagados por defecto. Ninguno se puede probar contra
-# MiniStack; los motivos exactos estan en las variables del modulo.
+# Los dos vienen apagados por defecto y cada uno tiene un requisito previo
+# distinto; los detalles estan en las variables del modulo.
 # =============================================================================
 
 # ── Sitio a sitio ───────────────────────────────────────────────────────────

@@ -57,8 +57,8 @@ resource "aws_lb_listener" "http" {
   port              = 80
   protocol          = "HTTP"
 
-  # Sin certificado el 80 sirve el trafico. Es el comportamiento actual y el
-  # unico posible en MiniStack, que no emula TLS en el ALB.
+  # Sin certificado el 80 sirve el trafico directamente. Con certificado, este
+  # mismo listener pasa a redirigir al 443.
   dynamic "default_action" {
     for_each = local.https_enabled ? [] : [1]
     content {

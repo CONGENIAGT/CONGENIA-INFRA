@@ -1,42 +1,41 @@
 # CONGENIA-INFRA
 
-Infraestructura como código oficial de CONGENIA. Terraform describe la misma
-plataforma en dos destinos:
+Infraestructura como código oficial de CONGENIA. El estado está partido en dos
+stacks con ciclos de vida distintos:
 
-- `envs/local`: validación integral sobre MiniStack con contenedores reales.
-- `envs/aws`: infraestructura oficial en AWS, identificada como `prod`.
+- `envs/shared`: persistente. Registro de imágenes (ECR), identidad de GitHub
+  Actions y zona DNS. Cuesta menos de USD 1/mes y sobrevive a los apagados.
+- `envs/aws`: la infraestructura oficial, identificada como `prod`. Concentra
+  todo el gasto y se destruye en cada pausa larga.
 
-La prueba local es el gate del despliegue: el código y las imágenes solo se
-publican después de que creación, smoke tests, integración y destrucción local
-terminen correctamente.
-
-Este README es la única guía operativa versionada del repositorio.
+Las imágenes ya no se construyen a mano: cada repositorio de servicio publica
+la suya en ECR por GitHub Actions al mergear, y abre un PR aquí registrando el
+tag. Desplegar sigue siendo una decisión humana.
 
 ## Arquitectura
 
-| Capacidad | AWS | Local |
-|---|---|---|
-| Red | VPC, subredes edge/app/data, SG y NACL | equivalente MiniStack |
-| Entrada | ALB HTTP/HTTPS y ACM | ALB emulado |
-| Cómputo | ECS Fargate | tareas ECS respaldadas por Docker |
-| Datos | RDS PostgreSQL | contenedor PostgreSQL |
-| Sesiones | ElastiCache Redis con TLS | contenedor Redis |
-| Documentos | S3 privado, cifrado y versionado | S3 MiniStack |
-| Identidad | Keycloak en ECS | Keycloak en ECS |
-| Mensajería | RabbitMQ en ECS | RabbitMQ en ECS |
-| Registro | ECR con tags inmutables | imágenes Docker locales |
+| Capacidad | Implementación |
+|---|---|
+| Red | VPC, subredes edge/app/data en 2 AZ, SG y NACL |
+| Entrada | ALB con HTTPS y certificado ACM, DNS en Route 53 |
+| Cómputo | ECS Fargate, cinco servicios |
+| Datos | RDS PostgreSQL 16, Single-AZ y cifrada |
+| Sesiones | ElastiCache Redis 7 |
+| Documentos | S3 privado, cifrado y versionado |
+| Identidad | Keycloak en ECS |
+| Mensajería | RabbitMQ en ECS |
+| Registro | ECR con tags inmutables (`envs/shared`) |
+| Entrega | GitHub Actions por OIDC, sin llaves de AWS |
 
-Los módulos compartidos viven en `modules/`; las diferencias de destino se
-concentran en `envs/local` y `envs/aws`.
+Los módulos compartidos viven en `modules/`; el cableado, en `envs/`.
 
 ## Requisitos
 
 - Terraform `>= 1.6`
-- Docker con `buildx`
-- AWS CLI v2 y credenciales del proyecto para `ENV=aws`
+- AWS CLI v2 y credenciales del proyecto
 - `jq`, `curl`, Bash y GNU Make
-- MiniStack disponible en `http://localhost:4566` para la prueba local
-- repositorio orquestador `ProjectUVG` junto a este repositorio
+- Docker con `buildx` solo si se va a publicar una imagen a mano; el pipeline
+  no lo necesita
 
 El backend AWS usa el bucket versionado `congenia-tfstate`, con cifrado y lock
 nativo de S3. El estado contiene secretos generados y su acceso debe limitarse
@@ -46,94 +45,53 @@ al equipo de infraestructura.
 
 ```bash
 make help
-make init ENV=local|aws
-make plan ENV=local|aws
-make create ENV=local|aws
-make up ENV=local
-make smoke ENV=local|aws
-make smoke-integration ENV=local|aws
-make open ENV=aws
-make close ENV=aws
-make destroy ENV=local
+make init ENV=aws|shared
+make plan ENV=aws|shared
+make create ENV=aws|shared
+make up-aws
+make smoke
+make smoke-integration
+make open
+make close
+make destroy
+make verify-teardown
+make nuke
 make cost-status
 ```
 
+`ENV` vale `aws` por defecto.
+
 - `create` crea o reconcilia infraestructura; en AWS deja las tareas apagadas.
-- `up` es exclusivamente el ciclo local `create → reconcile → smoke`.
+- `up-aws` es el ciclo completo `create → migrate → open → smoke`.
 - `open` escala las tareas oficiales a las cantidades declaradas.
 - `close` lleva las tareas a cero sin borrar datos ni la red.
-- `destroy` elimina el entorno completo; AWS exige confirmación explícita.
+- `destroy` elimina el entorno de aplicación; AWS exige confirmación explícita.
+  Conserva `envs/shared`, así que volver no exige republicar imágenes ni
+  re-delegar DNS.
+- `nuke` destruye además `envs/shared`. Es un cierre de proyecto, no una
+  operación de rutina.
+- `verify-teardown` le pregunta a AWS qué recursos del proyecto siguen vivos,
+  en lugar de confiar en que Terraform terminó en verde.
 - Opciones Terraform adicionales se pasan con `TF_VARS`, por ejemplo
   `TF_VARS='-var=enable_waf=true'`.
 
-## Gate local obligatorio
-
-### 0. Iniciar el emulador
-
-Con la distribución de MiniStack ubicada junto a este repositorio:
-
-```bash
-docker compose -f ../ministack/docker-compose.yml up -d
-curl -fsS http://localhost:4566/_ministack/health
-```
-
-La respuesta debe indicar que MiniStack está disponible antes de ejecutar
-Terraform.
-
-### 1. Construir imágenes desde el código actual
-
-```bash
-make images ORCH_DIR=../ProjectUVG
-```
-
-Se construyen API, frontend, PDF worker y Keycloak con tags `:local`.
-
-### 2. Crear y probar
-
-```bash
-make up ENV=local
-
-export SADC_CLIENT_SECRET=congenia_local_sadc_secret
-make smoke-integration ENV=local
-unset SADC_CLIENT_SECRET
-```
-
-El gate exige:
-
-- frontend accesible por el ALB;
-- `/health/ready` con PostgreSQL, Redis y RabbitMQ disponibles;
-- realm `congenia` de Keycloak;
-- obtención de token, creación y activación de una sesión temporal;
-- registro transaccional de una ficha y su consentimiento, incluyendo la
-  verificación local de `origen_creacion` y `creado_por` en PostgreSQL;
-- consumo del evento por el PDF worker y existencia del PDF resultante en S3;
-- token de sesión únicamente en el fragmento `#sessionToken=...`.
-
-### 3. Verificar destrucción reproducible
-
-```bash
-make destroy ENV=local
-make plan ENV=local
-```
-
-Después del destroy, el plan debe proponer una creación limpia. Si cualquier
-paso falla, no se publican commits ni imágenes.
-
-### 4. Registrar el resultado aprobado
-
-Con el gate verde, revisar y commitear cada repositorio independiente:
-
-1. `ProjectUVG/CONGENIA-M1-SERVER`
-2. `ProjectUVG/CONGENIA-M1`
-3. `ProjectUVG/CONGENIA-M1-PDF-WORKER`
-4. `ProjectUVG/CONGENIA-DB`
-5. `ProjectUVG`
-6. `CONGENIA-INFRA`
-
-No construir una imagen publicable desde un árbol sucio: el tag debe señalar
-al commit exacto que contiene su contenido.
-
 ## Despliegue oficial en AWS
+
+El diseño de lo que corre —red, capas de aislamiento, entrega de imágenes y
+persistencia— está en **[docs/ARQUITECTURA.md](docs/ARQUITECTURA.md)**.
+
+El ciclo de vida completo está en **[docs/DEPLOY.md](docs/DEPLOY.md)**, en tres partes:
+
+| Parte | Qué cubre | Con qué frecuencia |
+|---|---|---|
+| 1 | Preparar la cuenta: estado remoto, `envs/shared`, delegación de DNS, configuración de GitHub | Una vez por cuenta |
+| 2 | Desplegar, configurar Keycloak, probar, publicar una versión nueva | Cada despliegue |
+| 3 | Apagar: dormir servicios, destruir el entorno, nuke total | Cada pausa |
+
+Si `make plan ENV=aws` falla diciendo que no encuentra un repositorio ECR, la
+cuenta no pasó por la parte 1.
+
+Lo que sigue en este README es el resumen; el detalle está en ese documento.
 
 ### 1. Comprobar plan y créditos
 
@@ -156,25 +114,25 @@ dependencias, pero no se ejecutan imágenes pendientes o incompletas.
 
 ### 3. Publicar imágenes inmutables
 
-Desde `ProjectUVG`:
+Ya no se construye nada a mano: cada repositorio de servicio tiene un workflow
+de GitHub Actions que publica su imagen en ECR al mergear, y abre un PR aquí
+con el tag nuevo. `envs/aws/images.tfvars` sigue siendo el registro versionado
+de qué versión corre; lo que cambió es quién escribe la línea.
+
+Con las imágenes ya publicadas y el manifiesto mergeado:
 
 ```bash
-./scripts/release-plan.sh
-```
-
-El script inspecciona los repos y muestra los comandos `docker buildx --push`;
-no publica por sí solo. Revisar y ejecutar los comandos, incluida la imagen
-`congenia/migrate`. Después generar el manifiesto desplegable:
-
-```bash
-./scripts/release-plan.sh --write ../CONGENIA-INFRA/envs/aws/images.tfvars
-cd ../CONGENIA-INFRA
 make plan ENV=aws
 make create ENV=aws
 ```
 
-`images.tfvars` registra el tag distinto de API, frontend, PDF worker,
-Keycloak y migración. ECR es inmutable: nunca se usa `latest`.
+ECR es inmutable: nunca se usa `latest`, y el tag se deriva del commit. Para
+publicar sin pasar por GitHub —una cuenta nueva, una depuración— siguen
+existiendo `./scripts/release-plan.sh` en el orquestador y
+`make migrate-image ENV=aws`, que calculan exactamente los mismos tags.
+
+El arranque en frío de una cuenta, incluida la configuración de GitHub, está
+en [docs/DEPLOY.md](docs/DEPLOY.md), parte 1.
 
 ### 4. Cargar el esquema inicial
 
@@ -186,26 +144,21 @@ La tarea de una sola ejecución aplica los SQL incluidos en la imagen de
 migración. Es idempotente para una base nueva; cambios futuros de esquema deben
 usar migraciones incrementales.
 
-### 5. Emitir TLS y configurar DNS
+### 5. TLS y DNS
 
-```bash
-terraform -chdir=envs/aws output acm_validation_records
-```
+Con el dominio delegado a Route 53 (paso único, documentado en
+[docs/DEPLOY.md](docs/DEPLOY.md) parte 1), Terraform crea el registro de validación de ACM
+y el ALIAS al ALB, y espera el `ISSUED` dentro del mismo apply. No hay paso
+manual.
 
-Crear el CNAME indicado en name.com y esperar que ACM quede `ISSUED`. Apuntar
-`cogenia.app` al DNS del ALB mediante ALIAS/ANAME y aplicar:
-
-```bash
-make create ENV=aws TF_VARS='-var=validate_certificate=true'
-```
-
-No abrir Keycloak antes de que el hostname HTTPS resuelva: el issuer del JWT
-debe coincidir con la URL pública.
+Para un dominio cuyo DNS viva fuera de la cuenta, `-var=manage_dns=false`
+devuelve el proceso anterior de dos aplicaciones con `validate_certificate`;
+está descrito en `envs/aws/certificate.tf`.
 
 ### 6. Abrir y validar
 
 ```bash
-make open ENV=aws TF_VARS='-var=validate_certificate=true'
+make open ENV=aws
 make smoke ENV=aws
 
 # Solo es necesario al actualizar un realm que ya existia: el import de
@@ -268,23 +221,35 @@ la infraestructura.
 
 ## Destrucción automatizada
 
-Local:
+El estado está partido en dos stacks, y eso define qué borra cada comando:
 
-```bash
-make destroy ENV=local
-```
+| | `envs/shared` | `envs/aws` |
+|---|---|---|
+| Contiene | ECR, OIDC, rol de CI, zona Route 53 | VPC, NAT, ALB, RDS, Redis, ECS, secretos |
+| Cuesta | menos de USD 1/mes | prácticamente todo el gasto |
+| Lo destruye | `make nuke` | `make destroy ENV=aws` |
 
-AWS oficial:
+Apagado de rutina:
 
 ```bash
 make destroy ENV=aws CONFIRM_DESTROY=destroy-congenia-aws
 ```
 
-El target AWS primero lleva ECS a cero y activa temporalmente
-`allow_destroy=true`; luego elimina RDS sin snapshot final, todas las versiones
-del bucket, imágenes ECR, secretos y el resto del stack. Es una operación
-irreversible y solo debe ejecutarse cuando la eliminación de datos esté
-aprobada.
+El target lleva ECS a cero, activa temporalmente `allow_destroy=true` y elimina
+RDS sin snapshot final, todas las versiones del bucket, los secretos y el resto
+del stack de aplicación. Es irreversible en cuanto a datos, pero **conserva las
+imágenes y el DNS**: volver a levantar es `make up-aws`.
+
+AWS, cierre de proyecto:
+
+```bash
+make nuke CONFIRM_DESTROY=destroy-congenia-todo
+```
+
+Destruye `envs/aws` y después `envs/shared` —el orden es obligatorio—, y
+termina comprobando contra AWS que no quedó nada, más el checklist de lo que
+vive fuera de Terraform (bucket del estado, delegación en name.com, token de
+GitHub). Ejecutado sin la confirmación, solo imprime qué haría.
 
 Si el estado AWS está vacío, el target termina sin crear nada. Un recurso que
 exista fuera del estado nunca debe eliminarse a ciegas: primero se recupera una
@@ -297,7 +262,8 @@ autoriza su destrucción.
   perder trabajos. Antes de mayor carga debe migrarse a SQS/Amazon MQ o a un
   patrón outbox.
 - La carga SQL cubre instalaciones iniciales, no upgrades incrementales.
-- La integración completa en AWS sigue siendo obligatoria aunque MiniStack
-  esté verde; el emulador necesita `make reconcile` para ALB y AWS no.
+- Los smoke tests comprueban contenido y no solo códigos HTTP: con las reglas
+  de path mal aplicadas el ALB devuelve 200 sirviendo el SPA en todas las
+  rutas, y un smoke que mirara el código daría un falso verde.
 - La cuenta Free Plan tiene vigencia y créditos finitos. Consultarlos antes y
   después de cada ventana de prueba con `make cost-status`.
