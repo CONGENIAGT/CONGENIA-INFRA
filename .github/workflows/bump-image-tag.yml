@@ -1,0 +1,128 @@
+# =============================================================================
+# Registra en images.tfvars la version que acaba de publicarse.
+#
+# Lo invocan los workflows de los repositorios de servicio despues de subir una
+# imagen a ECR. Vive aqui, y no copiado cinco veces, para que la logica de
+# edicion del manifiesto tenga un solo lugar donde cambiar.
+#
+# Abre un PR en lugar de commitear a master a proposito: images.tfvars es el
+# registro versionado de que corre en produccion, y ese registro solo vale si
+# alguien lo mira. El pipeline publica; desplegar sigue siendo un merge humano
+# seguido de `make open ENV=aws`.
+# =============================================================================
+name: bump-image-tag
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: Clave en image_tags (api, frontend, pdf-worker, keycloak, migrate)
+        required: true
+        type: string
+      tag:
+        description: Tag publicado en ECR
+        required: true
+        type: string
+    secrets:
+      INFRA_TOKEN:
+        description: PAT con contents:write y pull-requests:write sobre CONGENIA-INFRA
+        required: true
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Clonar CONGENIA-INFRA
+        uses: actions/checkout@v4
+        with:
+          repository: CONGENIAGT/CONGENIA-INFRA
+          token: ${{ secrets.INFRA_TOKEN }}
+          ref: master
+
+      - name: Actualizar la linea del servicio
+        id: edit
+        env:
+          SERVICIO: ${{ inputs.service }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          python3 - <<'PY'
+          import os, re, pathlib, sys
+
+          servicio = os.environ["SERVICIO"]
+          tag      = os.environ["TAG"]
+          ruta     = pathlib.Path("envs/aws/images.tfvars")
+          texto    = ruta.read_text()
+
+          # Se toca exactamente una linea: la del servicio que publico. Los
+          # demas servicios avanzan a su propio ritmo y su tag no es asunto de
+          # este PR.
+          patron = re.compile(r'^(\s*"%s"\s*=\s*)"[^"]*"' % re.escape(servicio), re.M)
+          nuevo, n = patron.subn(lambda m: '%s"%s"' % (m.group(1), tag), texto)
+
+          if n == 0:
+              print(f"::error::'{servicio}' no existe en images.tfvars")
+              sys.exit(1)
+          if n > 1:
+              print(f"::error::'{servicio}' aparece {n} veces en images.tfvars")
+              sys.exit(1)
+
+          ruta.write_text(nuevo)
+          PY
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      # El repo corre `terraform fmt -check` sobre los PRs. Sin esto, el propio
+      # PR del pipeline fallaria su verificacion.
+      - name: Normalizar formato
+        run: terraform fmt envs/aws/images.tfvars
+
+      - name: Abrir o actualizar el PR
+        env:
+          GH_TOKEN: ${{ secrets.INFRA_TOKEN }}
+          SERVICIO: ${{ inputs.service }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- envs/aws/images.tfvars; then
+            echo "images.tfvars ya registra ${SERVICIO} = ${TAG}; no hay nada que abrir."
+            exit 0
+          fi
+
+          # Una rama por servicio, reutilizada: publicar dos veces el mismo
+          # servicio actualiza el PR abierto en vez de acumular PRs muertos.
+          rama="chore/image-${SERVICIO}"
+
+          git config user.name  "congenia-ci"
+          git config user.email "ci@congenia.invalid"
+          git checkout -B "$rama"
+          git add envs/aws/images.tfvars
+          git commit -m "chore(images): ${SERVICIO} -> ${TAG}"
+          git push --force-with-lease origin "$rama"
+
+          if gh pr view "$rama" --json number >/dev/null 2>&1; then
+            echo "PR ya abierto para ${rama}; queda actualizado con el nuevo tag."
+            exit 0
+          fi
+
+          gh pr create \
+            --base master \
+            --head "$rama" \
+            --title "chore(images): ${SERVICIO} -> ${TAG}" \
+            --body "$(cat <<CUERPO
+          Publicado por el pipeline de \`${SERVICIO}\`.
+
+          | | |
+          |---|---|
+          | Servicio | \`${SERVICIO}\` |
+          | Tag | \`${TAG}\` |
+          | Origen | ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} |
+
+          La imagen ya esta en ECR: este PR solo registra que version deberia
+          correr. Mergear no despliega nada — para aplicarlo hace falta
+          \`make open ENV=aws\` despues del merge.
+          CUERPO
+          )"

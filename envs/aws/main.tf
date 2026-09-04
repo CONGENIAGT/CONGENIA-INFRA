@@ -1,14 +1,30 @@
 # =============================================================================
 # CONGENIA - Stack en AWS real
 #
-# Reutiliza los mismos modulos que envs/local. Las diferencias son:
-#   - Las contrasenas salen de Secrets Manager, no de tfvars.
-#   - Las imagenes salen de ECR, no de Docker Hub.
+# Caracteristicas del entorno:
+#   - Las contrasenas las genera Terraform y viven en Secrets Manager.
+#   - Las imagenes salen de ECR, publicadas por el pipeline de cada repo.
 #   - Los servicios se encuentran por Cloud Map, no por host.docker.internal.
 #   - No hace falta scripts/register-targets.sh: el registro es nativo.
 # =============================================================================
 
 data "aws_caller_identity" "current" {}
+
+# Los repositorios ECR los crea envs/shared, no este stack: deben sobrevivir a
+# `make destroy ENV=aws`. Leerlos como data source en lugar de construir la URL
+# a mano convierte "todavia no aplicaste envs/shared" en un error de `plan`
+# claro, antes de pedirle un solo recurso a AWS.
+data "aws_ecr_repository" "this" {
+  for_each = toset([
+    "congenia/api",
+    "congenia/frontend",
+    "congenia/pdf-worker",
+    "congenia/keycloak",
+    "congenia/migrate",
+  ])
+
+  name = each.value
+}
 
 locals {
   tags = {
@@ -246,16 +262,6 @@ module "platform" {
   name_prefix   = "${var.name_prefix}-${var.environment}"
   service_names = local.service_names
 
-  # El repo de la imagen de migracion solo hace falta en AWS: en local el
-  # esquema lo carga docker-entrypoint-initdb.d.
-  ecr_repositories = [
-    "congenia/api",
-    "congenia/frontend",
-    "congenia/pdf-worker",
-    "congenia/keycloak",
-    "congenia/migrate",
-  ]
-
   # El nombre llega por variable y no leyendo el modulo `data` desde
   # `platform`, para no encadenar los dos modulos: el cableado vive aqui.
   docs_bucket_name = local.docs_bucket_name
@@ -270,9 +276,7 @@ module "platform" {
     aws_secretsmanager_secret.redis.arn,
   ]
 
-  immutable_image_tags = true
-  allow_destroy        = var.allow_destroy
-  tags                 = local.tags
+  tags = local.tags
 }
 
 module "edge" {

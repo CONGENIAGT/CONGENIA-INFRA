@@ -1,6 +1,9 @@
 # =============================================================================
 # Modulo: platform
-# Plano de ejecucion compartido: cluster ECS, registro de imagenes, logs y roles.
+# Plano de ejecucion compartido: cluster ECS, logs y roles.
+#
+# Los repositorios ECR ya no viven aqui: se movieron a envs/shared para que
+# sobrevivan a `make destroy ENV=aws` (ver modules/registry).
 # =============================================================================
 
 resource "aws_ecs_cluster" "this" {
@@ -12,31 +15,6 @@ resource "aws_ecs_cluster" "this" {
   }
 
   tags = merge(var.tags, { Name = "${var.name_prefix}-cluster" })
-}
-
-resource "aws_ecr_repository" "this" {
-  for_each = toset(var.ecr_repositories)
-
-  name = each.value
-
-  # IMMUTABLE impide que un `docker push` reescriba un tag ya publicado: dos
-  # personas trabajando a la vez no pueden pisarse, y lo que se desplego con un
-  # tag es para siempre ese contenido. El precio es que `latest` deja de tener
-  # sentido (solo se podria subir una vez), y por eso los tags se derivan del
-  # commit de cada repo. En local se deja MUTABLE: MiniStack no lo emula y el
-  # ciclo de prueba reconstruye la misma etiqueta todo el tiempo.
-  image_tag_mutability = var.immutable_image_tags ? "IMMUTABLE" : "MUTABLE"
-
-  # Una imagen publicada como indice OCI deja manifiestos hijos sin etiqueta al
-  # borrar el indice, y esos siguen bloqueando el borrado del repositorio.
-  # `force_delete` evita tener que iterar a mano antes de cada destroy.
-  force_delete = var.allow_destroy
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = merge(var.tags, { Name = each.value })
 }
 
 resource "aws_cloudwatch_log_group" "this" {

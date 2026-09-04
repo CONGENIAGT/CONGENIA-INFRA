@@ -151,9 +151,10 @@ variable "service_desired_counts" {
 
 variable "domain_name" {
   description = <<-DESC
-    Dominio del punto de entrada publico. Registrado en name.com: los CNAME de
-    validacion se crean a mano (ver certificate.tf). null = sin certificado,
-    el ALB se queda con el listener 80.
+    Dominio del punto de entrada publico. Registrado en name.com, con los
+    nameservers delegados a la zona de Route 53 que crea envs/shared: los
+    registros de validacion y el ALIAS al ALB los escribe Terraform.
+    null = sin certificado, el ALB se queda con el listener 80.
   DESC
   type        = string
   default     = "cogenia.app"
@@ -168,11 +169,33 @@ variable "subject_alternative_names" {
   default     = []
 }
 
+variable "manage_dns" {
+  description = <<-DESC
+    Administra los registros DNS en la zona de Route 53 creada por envs/shared:
+    la validacion del certificado y el ALIAS del dominio hacia el ALB.
+
+    Con esto en true el certificado se emite dentro del mismo `apply` y no hay
+    ningun paso manual, ni siquiera al recrear la infraestructura desde cero.
+    Requiere haber delegado los nameservers en name.com una sola vez; el
+    procedimiento esta en docs/DEPLOY.md, parte 1.
+
+    Ponerlo en false devuelve el proceso manual de dos aplicaciones descrito en
+    certificate.tf, para un dominio cuyo DNS viva fuera de la cuenta.
+  DESC
+  type        = bool
+  default     = true
+}
+
 variable "validate_certificate" {
   description = <<-DESC
-    Segundo paso del proceso de TLS: espera a que ACM emita el certificado y
-    entonces crea el listener 443. Encenderlo ANTES de crear el CNAME en
-    name.com deja el apply esperando hasta 60 minutos.
+    OBSOLETA cuando `manage_dns = true`, que es el default: con la zona en
+    Route 53 la validacion ya no depende de un paso humano y este interruptor
+    no hace falta.
+
+    Solo tiene efecto con `manage_dns = false`, donde sigue siendo el segundo
+    paso del proceso: espera a que ACM emita el certificado y entonces crea el
+    listener 443. Encenderlo ANTES de crear el CNAME a mano deja el apply
+    esperando hasta 60 minutos.
   DESC
   type        = bool
   default     = false

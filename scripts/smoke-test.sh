@@ -3,24 +3,16 @@
 # Pruebas de salud atravesando el ALB, que es el unico punto de entrada.
 #
 # Comprueba CONTENIDO, no solo codigos HTTP: con las reglas de path mal
-# aplicadas, MiniStack devuelve 200 sirviendo el frontend para todas las rutas,
-# y un smoke test que solo mirara el codigo daria un falso verde.
+# aplicadas el ALB devuelve 200 sirviendo el frontend para todas las rutas, y
+# un smoke test que solo mirara el codigo daria un falso verde.
 # =============================================================================
 set -uo pipefail
 
-TFDIR="${1:-envs/local}"
-GW="${MINISTACK_ENDPOINT:-http://localhost:4566}"
+TFDIR="${1:-envs/aws}"
 
-if [[ "$TFDIR" == *"/aws" || "$TFDIR" == "envs/aws" ]]; then
-  base_url=$(cd "$TFDIR" && terraform output -raw public_url)
-  host_header=""
-  target_label="$base_url"
-else
-  alb=$(cd "$TFDIR" && terraform output -raw alb_name)
-  host_header="${alb}.alb.localhost"
-  base_url="$GW"
-  target_label="${base_url} (Host: ${host_header})"
-fi
+base_url=$(cd "$TFDIR" && terraform output -raw public_url)
+host_header=""
+target_label="$base_url"
 
 fail=0
 check() {

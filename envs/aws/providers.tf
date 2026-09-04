@@ -4,8 +4,8 @@
 # Aplicar este entorno modifica la infraestructura oficial y consume creditos
 # del AWS Free Plan. El flujo completo y sus guardas estan en README.md.
 #
-# Sin bloque `endpoints`: esa es la unica diferencia estructural con
-# envs/local. Los modulos son exactamente los mismos.
+# El estado compartido y persistente —ECR, identidad de CI y zona DNS— vive
+# aparte, en envs/shared.
 # =============================================================================
 
 terraform {

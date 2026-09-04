@@ -44,9 +44,9 @@ resource "aws_elasticache_subnet_group" "this" {
   subnet_ids = var.data_subnet_ids
 }
 
-# `port` se deja sin declarar a proposito: MiniStack responde el puerto
-# publicado en el host (16379+) en lugar del puerto del cluster, y fijarlo a
-# 6379 hace que Terraform vea drift y recree el cluster en cada apply.
+# `port` se deja sin declarar a proposito: el valor por defecto del motor ya es
+# el correcto, y fijarlo explicitamente ha causado drift y recreacion del
+# cluster en cada apply.
 resource "aws_elasticache_cluster" "redis" {
   count = var.redis_transit_encryption_enabled || var.redis_at_rest_encryption_enabled || var.redis_auth_token != null ? 0 : 1
 
@@ -57,9 +57,9 @@ resource "aws_elasticache_cluster" "redis" {
   num_cache_nodes   = 1
   subnet_group_name = aws_elasticache_subnet_group.this.name
 
-  # `port` se deja sin declarar a proposito: MiniStack responde el puerto
-  # publicado en el host (16379+) en lugar del puerto del cluster. Fijarlo a
-  # 6379 hace que Terraform vea drift y recree el cluster en cada apply.
+  # `port` se deja sin declarar a proposito: el valor por defecto del motor ya
+  # es el correcto, y fijarlo explicitamente ha causado drift y recreacion del
+  # cluster en cada apply.
   security_group_ids = [var.data_sg_id]
 
   tags = merge(var.tags, { Name = "${var.name_prefix}-redis" })

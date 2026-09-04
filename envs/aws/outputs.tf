@@ -16,7 +16,7 @@ output "docs_bucket" {
 }
 
 output "ecr_repositories" {
-  value = module.platform.ecr_repository_urls
+  value = { for k, v in data.aws_ecr_repository.this : k => v.repository_url }
 }
 
 output "private_namespace" {
@@ -92,15 +92,16 @@ output "migrate_log_group" {
 }
 
 output "migrate_image_repository" {
-  value = module.platform.ecr_repository_urls["congenia/migrate"]
+  value = data.aws_ecr_repository.this["congenia/migrate"].repository_url
 }
 
 # ── TLS ─────────────────────────────────────────────────────────────────────
 
 output "acm_validation_records" {
   description = <<-DESC
-    Registros que hay que crear a mano en name.com para que ACM emita el
-    certificado. Vacio si no hay dominio configurado.
+    Registros de validacion del certificado. Con `manage_dns = true` los crea
+    Terraform y este output queda solo como diagnostico; con `manage_dns =
+    false` son los CNAME que hay que pegar a mano en el proveedor DNS.
   DESC
   value = flatten([
     for cert in aws_acm_certificate.this : [
@@ -116,4 +117,9 @@ output "acm_validation_records" {
 output "acm_certificate_status" {
   description = "PENDING_VALIDATION hasta que el CNAME exista; luego ISSUED."
   value       = one(aws_acm_certificate.this[*].status)
+}
+
+output "dns_managed" {
+  description = "true cuando Terraform administra validacion y ALIAS en Route 53."
+  value       = local.gestiona_dns
 }

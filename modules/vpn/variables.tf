@@ -22,10 +22,8 @@ variable "enable_site_to_site" {
     Tunel IPsec hacia la red privada ajena donde vive la base de datos externa
     que necesita AnalyticsService.
 
-    Debe quedar en false contra MiniStack: `aws_vpn_connection` se crea, pero
-    el provider lee despues DescribeTransitGatewayAttachments, accion que
-    MiniStack no implementa, y el apply aborta. El gateway y el customer
-    gateway si funcionan y se crean igualmente.
+    Requiere tres datos del otro dominio antes de encenderse: IP publica del
+    gateway, ASN y rangos alcanzables.
   DESC
   type        = bool
   default     = false
@@ -54,8 +52,9 @@ variable "enable_client_vpn" {
     VPN de cliente para que el equipo alcance recursos privados (RDS, consola
     de RabbitMQ, Keycloak) sin exponerlos en el ALB.
 
-    No existe en MiniStack: `DescribeClientVpnEndpoints` responde
-    "Unknown EC2 action". Solo aplicable en AWS real.
+    Requiere emitir dos certificados en ACM (servidor y cliente). Es la
+    alternativa a un bastion: no abre puertos de entrada, no hay host que
+    parchear y cada conexion queda registrada.
   DESC
   type        = bool
   default     = false
