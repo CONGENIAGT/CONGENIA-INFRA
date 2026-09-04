@@ -91,33 +91,95 @@ aws s3api put-bucket-encryption --bucket "$BACKEND_BUCKET" \
 El versionado no es opcional: es lo unico que permite recuperar un estado
 corrupto. Terraform usa locking nativo de S3; no hace falta DynamoDB.
 
-En una cuenta independiente los nombres de S3 son globales, asi que hay que
-acotarlos y reexportar el backend en cada terminal:
+### Solo para una cuenta que NO es la oficial
+
+> **No ejecutar este bloque en la cuenta oficial de CONGENIA.** Sus valores por
+> defecto ya son los correctos: bucket `congenia-tfstate`, prefijo `congenia`,
+> dominio `cogenia.app`. Exportar estas variables ahi apunta el backend a un
+> bucket inexistente —`init` falla con `NoSuchBucket`— y, peor, hace que el
+> plan proponga una zona de Route 53 para un dominio de ejemplo que nadie
+> controla.
+>
+> Si ya las exportaste por error:
+>
+> ```bash
+> unset TF_CLI_ARGS_init TF_VAR_name_prefix TF_VAR_domain_name
+> ```
+
+Los nombres de bucket en S3 son globales, asi que una cuenta propia necesita el
+suyo, un prefijo de recursos distinto y un dominio bajo su control. Estas tres
+variables hay que reexportarlas **en cada terminal nueva**:
 
 ```bash
 AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 export TF_CLI_ARGS_init="-reconfigure -backend-config=bucket=congenia-tfstate-${AWS_ACCOUNT_ID}"
 export TF_VAR_name_prefix="congenia-$(printf '%s' "$AWS_ACCOUNT_ID" | cut -c 7-12)"
-export TF_VAR_domain_name="app.ejemplo.com"
+export TF_VAR_domain_name="tu-dominio-real.com"   # debe ser tuyo de verdad
 ```
+
+El bucket de ese nombre hay que crearlo con los mismos cuatro comandos de
+arriba, sustituyendo `BACKEND_BUCKET`.
 
 ## 1.4 Aplicar `envs/shared`
 
 ```bash
 make init ENV=shared
 terraform -chdir=envs/shared plan
+```
+
+**Leer el plan antes de aplicar.** En la cuenta oficial debe decir:
+
+```text
++ resource "aws_route53_zone" "public" {
+    + name = "cogenia.app"
++ resource "aws_iam_role" "ecr_push" {
+    + name = "congenia-gha-ecr-push"
+```
+
+Si aparece otro dominio o el nombre lleva un sufijo numerico, hay variables de
+1.3 exportadas que no corresponden. Corregir antes de continuar: aplicar asi
+crea una zona alojada para un dominio ajeno y recursos con el prefijo
+equivocado.
+
+```bash
 make create ENV=shared
 ```
 
-El plan debe crear cinco repositorios ECR, el proveedor OIDC, un rol y una zona
-alojada.
+Debe crear cinco repositorios ECR, el proveedor OIDC, un rol y una zona
+alojada. Si termina bien, continuar en 1.5.
 
-El proveedor OIDC es unico por cuenta AWS. Si otro proyecto ya lo creo, el
-apply falla con `EntityAlreadyExists` y se reutiliza el existente:
+### Solo si el apply fallo con `EntityAlreadyExists`
+
+> **No ejecutar este comando si el apply de arriba termino bien.** Una vez
+> creado, el proveedor OIDC lo administra este estado; `create_oidc_provider =
+> false` le dice a Terraform que no es suyo, y el siguiente apply **lo borra**.
+> Eso deja a GitHub Actions sin identidad y los cinco workflows fallan con
+> `AccessDenied`.
+>
+> Antes de usarlo, comprobar que Terraform no lo tenga ya:
+>
+> ```bash
+> terraform -chdir=envs/shared state list | grep openid
+> ```
+>
+> Si esa linea devuelve algo, el proveedor es tuyo y este bloque no aplica.
+
+El proveedor OIDC de GitHub es **unico por cuenta AWS**: solo puede existir un
+`token.actions.githubusercontent.com`. Si otro proyecto de la misma cuenta ya
+lo creo, el apply falla asi:
+
+```text
+Error: creating IAM OIDC Provider: EntityAlreadyExists
+```
+
+Entonces, y solo entonces, se reutiliza el existente en lugar de duplicarlo:
 
 ```bash
 make create ENV=shared TF_VARS='-var=create_oidc_provider=false'
 ```
+
+Ese valor hay que pasarlo en **todos** los apply siguientes de `envs/shared`,
+o Terraform volvera a intentar crearlo.
 
 Guardar los tres valores que hacen falta despues:
 

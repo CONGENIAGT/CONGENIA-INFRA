@@ -299,21 +299,15 @@ certificado mutuo y no una maquina puente: no abre puertos de entrada, no hay
 host que parchear y cada conexion queda registrada. Requiere emitir dos
 certificados en ACM.
 
-Hay una consecuencia que conviene mirar de frente: como no existe ese camino
-privado, **la consola de administracion de Keycloak se publica por internet**.
-La regla del ALB que enruta a Keycloak incluye `/admin/*` junto con
-`/realms/*`, de modo que el panel de administracion es alcanzable desde fuera y
-lo unico que lo protege es el login de Keycloak. Comprobado:
+Hay una consecuencia de diseno que conviene mirar de frente: como no existe ese
+camino privado, la administracion de la identidad viaja hoy por el mismo
+listener publico que la aplicacion, protegida solo por su propio login.
 
-```
-$ curl -o /dev/null -w '%{http_code}' https://cogenia.app/admin/master/console/
-200
-```
-
-Con la VPN en pie, lo correcto seria sacar `/admin/*` de la regla publica y
-dejar esa consola accesible solo por el tunel. Mientras tanto, es una
-superficie expuesta que existe porque falta la alternativa, no porque se haya
-decidido.
+Con la VPN en pie, lo correcto seria acotar las rutas administrativas a la red
+privada y dejarlas accesibles unicamente por el tunel. Es una superficie que
+existe porque falta la alternativa, no porque se haya decidido asi. El detalle
+concreto de que rutas y como recortarlas esta en `envs/aws/main.tf`, junto a la
+definicion de las reglas del listener.
 
 El tunel sitio a sitio hacia la base de datos externa de Nursera esta escrito
 en el mismo modulo y espera tres datos del otro dominio: IP publica del

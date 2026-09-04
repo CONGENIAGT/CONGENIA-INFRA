@@ -56,3 +56,33 @@ resource "aws_route53_zone" "public" {
 }
 
 data "aws_caller_identity" "current" {}
+
+# Guarda local: falla durante el plan, antes de pedirle un solo recurso a AWS.
+#
+# Existe porque el paso 1.3 de docs/DEPLOY.md ofrece un bloque de variables
+# para cuentas que no son la oficial, y copiarlo por error deja
+# `TF_VAR_domain_name` con un dominio de ejemplo. El plan entonces propone una
+# zona alojada perfectamente valida para un dominio que nadie controla: cuesta
+# dinero, no resuelve nada, y el error solo se nota al intentar delegar.
+resource "terraform_data" "dominio_guard" {
+  input = var.domain_name
+
+  lifecycle {
+    precondition {
+      condition = !var.manage_dns || !can(regex(
+        "(?i)(ejemplo|example|cambiar|tu-dominio|midominio)", var.domain_name
+      ))
+      error_message = <<-ERROR
+        `domain_name` parece un marcador de posicion: "${var.domain_name}".
+
+        Si estas en la cuenta oficial, el valor correcto es el default y
+        sobran las variables del bloque "cuenta que NO es la oficial":
+
+          unset TF_CLI_ARGS_init TF_VAR_name_prefix TF_VAR_domain_name
+
+        Si es una cuenta propia, poner un dominio real bajo tu control: la
+        zona de Route 53 solo sirve si podes delegarle los nameservers.
+      ERROR
+    }
+  }
+}
