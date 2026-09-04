@@ -27,10 +27,23 @@ variable "routes" {
   }))
 }
 
+variable "enable_https" {
+  description = <<-DESC
+    Crea el listener 443 y convierte el 80 en redireccion.
+
+    Va separada de `certificate_arn` porque decide un `count` y Terraform
+    necesita resolverlo durante el plan: debe derivarse de la configuracion,
+    no del ARN, que en un entorno nuevo no se conoce hasta el apply.
+  DESC
+  type        = bool
+  default     = false
+}
+
 variable "certificate_arn" {
   description = <<-DESC
-    Certificado ACM ya emitido (ISSUED) para el listener 443. null = solo
-    listener 80. Cuando se pasa, el 80 deja de servir y redirige al 443.
+    Certificado ACM ya emitido (ISSUED) para el listener 443. Se espera el ARN
+    que devuelve `aws_acm_certificate_validation`, no el del certificado: es lo
+    que garantiza que el listener no se cree antes de la emision.
   DESC
   type        = string
   default     = null

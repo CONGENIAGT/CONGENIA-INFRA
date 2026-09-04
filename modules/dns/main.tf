@@ -22,16 +22,24 @@
 # =============================================================================
 
 locals {
-  # ACM emite el MISMO registro de validacion para un dominio y su comodin
-  # (cogenia.app y *.cogenia.app comparten CNAME). Iterando por dominio,
-  # Terraform intentaria crear dos veces el mismo nombre y el apply fallaria
-  # con un conflicto. Agrupar por nombre de registro deduplica.
+  # La clave es `domain_name` y no `resource_record_name` a proposito, aunque
+  # agrupar por nombre de registro pareceria mas correcto para deduplicar.
+  #
+  # `for_each` exige conocer sus CLAVES durante el plan. De un certificado que
+  # todavia no existe, ACM solo puede anticipar los dominios —salen de la
+  # configuracion— pero no los nombres ni los valores de validacion, que asigna
+  # al emitirlo. Keyear por el nombre del registro deja el mapa entero como
+  # "known only after apply" y el plan falla antes de crear nada.
+  #
+  # Los valores si pueden ser desconocidos: por eso el nombre y el contenido
+  # del registro viajan dentro del value.
   validation_records = {
     for option in var.domain_validation_options :
-    option.resource_record_name => {
+    option.domain_name => {
+      name   = option.resource_record_name
       type   = option.resource_record_type
       record = option.resource_record_value
-    }...
+    }
   }
 }
 
@@ -39,15 +47,18 @@ resource "aws_route53_record" "cert_validation" {
   for_each = local.validation_records
 
   zone_id = var.zone_id
-  name    = each.key
-  type    = each.value[0].type
-  records = [each.value[0].record]
+  name    = each.value.name
+  type    = each.value.type
+  records = [each.value.record]
 
   # TTL corto: este registro solo se consulta durante la emision y la
   # renovacion del certificado.
   ttl = 60
 
-  # Una renovacion de ACM puede reemitir el mismo nombre. Sin esto, un
-  # certificado recreado choca con el registro que dejo el anterior.
+  # Necesario por dos motivos. Uno: una renovacion de ACM puede reemitir el
+  # mismo nombre, y sin esto un certificado recreado choca con el registro que
+  # dejo el anterior. Dos: un dominio y su comodin (`cogenia.app` y
+  # `*.cogenia.app`) comparten el MISMO registro de validacion, asi que al
+  # iterar por dominio se generan dos instancias que escriben lo mismo.
   allow_overwrite = true
 }

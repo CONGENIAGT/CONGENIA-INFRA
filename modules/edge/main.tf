@@ -10,7 +10,17 @@ locals {
   default_route = one([for k, v in var.routes : k if length(v.paths) == 0])
   rule_routes   = { for k, v in var.routes : k => v if length(v.paths) > 0 }
 
-  https_enabled = var.certificate_arn != null
+  # Sale de una variable propia y no de `var.certificate_arn != null` porque
+  # decide un `count`, y Terraform exige conocer los count durante el plan.
+  #
+  # El ARN llega de `aws_acm_certificate_validation`, que en un entorno nuevo
+  # todavia no existe: preguntarle si es null deja el count indeterminado y el
+  # plan falla con "Invalid count argument". La intencion de servir TLS, en
+  # cambio, se sabe desde la configuracion.
+  #
+  # La dependencia con la validacion no se pierde: el listener sigue leyendo el
+  # ARN, asi que Terraform no lo crea antes de que el certificado este emitido.
+  https_enabled = var.enable_https
 
   # Las reglas de path cuelgan del listener que sirve trafico. Con TLS ese es
   # el 443, porque el 80 pasa a redirigir y una regla ahi nunca se evaluaria.

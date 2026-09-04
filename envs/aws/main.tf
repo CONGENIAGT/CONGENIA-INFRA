@@ -290,6 +290,10 @@ module "edge" {
 
   # null mientras el certificado no este emitido: `one()` sobre un recurso con
   # count = 0 devuelve null y el modulo se queda solo con el listener 80.
+  # `enable_https` decide el count del listener y sale de la configuracion;
+  # `certificate_arn` es el ARN emitido y solo se conoce tras el apply. La
+  # referencia a la validacion es la que impide crear el 443 antes de tiempo.
+  enable_https    = local.tls_activo
   certificate_arn = one(aws_acm_certificate_validation.this[*].certificate_arn)
 
   routes = {
