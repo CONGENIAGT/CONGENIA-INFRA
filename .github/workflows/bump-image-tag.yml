@@ -101,10 +101,13 @@ jobs:
           git checkout -B "$rama"
           git add envs/aws/images.tfvars
           git commit -m "chore(images): ${SERVICIO} -> ${TAG}"
+
+          git fetch --depth=1 origin "+refs/heads/${rama}:refs/remotes/origin/${rama}" || true
           git push --force-with-lease origin "$rama"
 
-          if gh pr view "$rama" --json number >/dev/null 2>&1; then
-            echo "PR ya abierto para ${rama}; queda actualizado con el nuevo tag."
+          abierto="$(gh pr list --head "$rama" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$abierto" ]; then
+            echo "PR #${abierto} ya abierto para ${rama}; queda actualizado con el nuevo tag."
             exit 0
           fi
 
