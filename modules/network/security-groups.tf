@@ -1,6 +1,6 @@
 # =============================================================================
 # Grupos de seguridad: una cadena estricta edge -> app -> data.
-# Ningun SG de datos acepta trafico que no venga del SG de aplicacion.
+# db-access administra por separado una regla temporal a PostgreSQL.
 # =============================================================================
 
 resource "aws_security_group" "edge" {
@@ -74,30 +74,32 @@ resource "aws_security_group" "data" {
   description = "Postgres / Redis: solo desde la capa de aplicacion"
   vpc_id      = aws_vpc.this.id
 
-  ingress {
-    description     = "PostgreSQL desde la capa app"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.app.id]
-  }
-
-  ingress {
-    description     = "Redis desde la capa app"
-    from_port       = 6379
-    to_port         = 6379
-    protocol        = "tcp"
-    security_groups = [aws_security_group.app.id]
-  }
-
-  # Sin egress a internet: la capa de datos no inicia conexiones salientes.
-  egress {
-    description = "Solo dentro de la VPC"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = [var.vpc_cidr]
-  }
-
   tags = merge(var.tags, { Name = "${var.name_prefix}-data-sg" })
+}
+
+# Antes del primer apply sobre una VPC existente, importar las tres reglas
+# con scripts/migrate-data-sg-rules.sh. No usar ingress=[]: revocaria accesos.
+resource "aws_vpc_security_group_ingress_rule" "data_postgres" {
+  security_group_id            = aws_security_group.data.id
+  referenced_security_group_id = aws_security_group.app.id
+  description                  = "PostgreSQL desde la capa app"
+  ip_protocol                  = "tcp"
+  from_port                    = 5432
+  to_port                      = 5432
+}
+
+resource "aws_vpc_security_group_ingress_rule" "data_redis" {
+  security_group_id            = aws_security_group.data.id
+  referenced_security_group_id = aws_security_group.app.id
+  description                  = "Redis desde la capa app"
+  ip_protocol                  = "tcp"
+  from_port                    = 6379
+  to_port                      = 6379
+}
+
+resource "aws_vpc_security_group_egress_rule" "data_vpc" {
+  security_group_id = aws_security_group.data.id
+  description       = "Solo dentro de la VPC"
+  ip_protocol       = "-1"
+  cidr_ipv4         = var.vpc_cidr
 }

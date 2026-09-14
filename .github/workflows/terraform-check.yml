@@ -28,7 +28,7 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.9.8"
+          terraform_version: "1.15.8"
           terraform_wrapper: false
 
       - name: Formato
@@ -45,4 +45,13 @@ jobs:
           done
 
       - name: Sintaxis de los scripts
-        run: bash -n scripts/*.sh
+        run: |
+          for script in scripts/*.sh; do bash -n "$script"; done
+
+      - name: Ciclo de vida db-access (simulado)
+        run: make test-db-access
+
+      - name: Contrato de seguridad db-access (simulado)
+        run: |
+          terraform -chdir=modules/db-access init -backend=false -input=false
+          terraform -chdir=modules/db-access test

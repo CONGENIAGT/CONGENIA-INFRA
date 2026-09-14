@@ -321,6 +321,21 @@ gateway, ASN y rangos alcanzables.
 
 ---
 
+## Acceso administrativo a PostgreSQL
+
+`envs/db-access` administra un acceso opcional e independiente del despliegue:
+`DBeaver → puerto local → Session Manager → EC2 privada app → RDS:5432`.
+La EC2 usa SSM y el NAT existente; no tiene IP pública ni entrada SSH. Su grupo
+solo permite salida HTTPS y PostgreSQL; una regla propia en el SG `data` concede
+5432. Las reglas base de ese grupo pertenecen a `envs/aws`, las del acceso a
+`envs/db-access`, todas como recursos independientes para evitar sobrescrituras.
+La red/RDS no dependen del estado del acceso. El orden de eliminación se aplica
+en Make: `db-access → aws → shared`. `Component=db-access` identifica EC2, EBS,
+reglas e IAM. El estado remoto permanece; el volumen se borra al terminar EC2.
+Procedimiento y costes en [DEPLOY.md §2.7](DEPLOY.md#27-acceso-a-rds-desde-dbeaver).
+La evidencia histórica siguiente corresponde a la plataforma, no verifica este
+acceso nuevo, que requiere aceptación en AWS tras desplegarse.
+
 ## Evidencia
 
 Verificado el 2026-09-03 contra la cuenta real:

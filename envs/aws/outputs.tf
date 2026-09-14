@@ -6,6 +6,23 @@ output "vpc_id" {
   value = module.network.vpc_id
 }
 
+output "db_access_context" {
+  description = "Contrato sin secretos para el stack independiente db-access. Publicar tras importar las reglas data."
+  value = {
+    version     = 1
+    account_id  = data.aws_caller_identity.current.account_id
+    region      = var.region
+    name_prefix = var.name_prefix
+    environment = var.environment
+    vpc_id      = module.network.vpc_id
+    subnet_id   = module.network.app_subnet_ids[0]
+    data_sg_id  = module.network.data_sg_id
+    db_host     = module.data.db_address
+    db_port     = module.data.db_port
+    db_name     = module.data.db_name
+  }
+}
+
 output "db_endpoint" {
   value     = module.data.db_endpoint
   sensitive = true

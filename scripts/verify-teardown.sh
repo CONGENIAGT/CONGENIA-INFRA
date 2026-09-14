@@ -13,7 +13,7 @@
 #
 # Sale con 0 solo si la cuenta quedo limpia.
 # =============================================================================
-set -uo pipefail
+set -euo pipefail
 
 REGION="${AWS_REGION:-us-east-1}"
 PREFIJO="${TF_VAR_name_prefix:-congenia}"
@@ -25,7 +25,7 @@ if [[ "${1:-}" == "--perimetro" ]]; then
   Perimetro fuera de Terraform
   ════════════════════════════
 
-  Estos no los borra ningun destroy porque viven fuera de los dos estados.
+  Estos no los borra ningun destroy porque viven fuera de los tres estados.
   Repasarlos a mano para cerrar de verdad:
 
   [ ] Bucket del estado remoto (congenia-tfstate).
@@ -71,13 +71,19 @@ echo "════════════════════════�
 echo ""
 
 SOBREVIVIENTES=0
+ERRORES=0
 
 # Ejecuta una consulta y reporta lo que devuelva. Una consulta que no devuelve
 # nada es el resultado esperado.
 revisar() {
   local etiqueta="$1"; shift
   local salida
-  salida=$("$@" 2>/dev/null | tr -d '\r' | grep -v '^None$' | grep -v '^$' || true)
+  if ! salida=$("$@"); then
+    printf '  ERROR %s (consulta fallida; no se considera limpio)\n' "$etiqueta" >&2
+    ERRORES=$((ERRORES + 1))
+    return 0
+  fi
+  salida=$(printf '%s\n' "$salida" | tr -d '\r' | sed '/^None$/d; /^$/d')
 
   if [[ -z "$salida" ]]; then
     printf "  \033[32mok\033[0m    %s\n" "$etiqueta"
@@ -91,6 +97,39 @@ revisar() {
 q() { aws --region "$REGION" "$@"; }
 
 # ── Computo ─────────────────────────────────────────────────────────────────
+
+revisar "EC2 del proyecto (incluidas detenidas)" \
+  q ec2 describe-instances --filters "Name=tag:Project,Values=CONGENIA" \
+  "Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down" \
+  --query 'Reservations[].Instances[].InstanceId' --output text
+
+revisar "Volumenes EBS del proyecto" \
+  q ec2 describe-volumes --filters "Name=tag:Project,Values=CONGENIA" \
+  --query 'Volumes[].VolumeId' --output text
+
+revisar "Snapshots EBS del proyecto" \
+  q ec2 describe-snapshots --owner-ids self --filters "Name=tag:Project,Values=CONGENIA" \
+  --query 'Snapshots[].SnapshotId' --output text
+
+revisar "Grupos de seguridad db-access" \
+  q ec2 describe-security-groups --filters "Name=tag:Project,Values=CONGENIA" "Name=tag:Component,Values=db-access" \
+  --query 'SecurityGroups[].GroupId' --output text
+
+revisar "Reglas db-access" \
+  q ec2 describe-security-group-rules --filters "Name=tag:Project,Values=CONGENIA" "Name=tag:Component,Values=db-access" \
+  --query 'SecurityGroupRules[].SecurityGroupRuleId' --output text
+
+revisar "Instance profiles db-access" \
+  q iam list-instance-profiles --path-prefix /congenia/db-access/ \
+  --query 'InstanceProfiles[].InstanceProfileName' --output text
+
+revisar "Politicas IAM db-access" \
+  q iam list-policies --scope Local --path-prefix /congenia/db-access/ \
+  --query 'Policies[].Arn' --output text
+
+revisar "Documentos SSM db-access" \
+  q ssm list-documents --filters "Key=tag:Project,Values=CONGENIA" "Key=tag:Component,Values=db-access" \
+  --query 'DocumentIdentifiers[].Name' --output text
 revisar "ECS clusters" \
   q ecs list-clusters --query "clusterArns[?contains(@, '${PREFIJO}')]" --output text
 
@@ -170,11 +209,14 @@ revisar "Namespaces de Cloud Map" \
 # Informativo, no cuenta como sobreviviente: un secreto en ventana de
 # recuperacion ya esta borrado a efectos de facturacion y desaparece solo. Solo
 # estorba si hay que reutilizar exactamente ese nombre antes de que expire.
-pendientes=$(q secretsmanager list-secrets --include-planned-deletion \
+if ! pendientes=$(q secretsmanager list-secrets --include-planned-deletion \
   --query "SecretList[?contains(Name, '${PREFIJO}') && DeletedDate != null].[Name,DeletedDate]" \
-  --output text 2>/dev/null || true)
+  --output text); then
+  echo "ERROR: no se pudo consultar secretos pendientes" >&2
+  ERRORES=$((ERRORES + 1))
+fi
 
-if [[ -n "$pendientes" ]]; then
+if [[ -n "$pendientes" && "$pendientes" != None ]]; then
   echo ""
   echo "  Secretos en ventana de recuperacion (se borran solos, no se facturan):"
   printf '%s\n' "$pendientes" | while read -r nombre fecha _; do
@@ -190,6 +232,11 @@ if [[ -n "$pendientes" ]]; then
 fi
 
 echo ""
+if [[ "$ERRORES" -gt 0 ]]; then
+  echo "Auditoria incompleta: $ERRORES consultas fallidas. No se declara limpio."
+  exit 2
+fi
+
 if [[ "$SOBREVIVIENTES" -eq 0 ]]; then
   echo "  La cuenta quedo limpia: ningun recurso del proyecto sobrevive."
   echo "  (El bucket del estado remoto se conserva a proposito: es el backend.)"

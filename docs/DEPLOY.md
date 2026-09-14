@@ -6,8 +6,8 @@ desplegar, y apagar.
 La **parte 1** se hace una sola vez por cuenta AWS. Despues, desplegar es
 `make up-aws` y todo lo demas esta en las partes 2 y 3.
 
-El estado esta partido en dos stacks, y de ahi salen los dos niveles de
-destruccion:
+Los dos stacks principales tienen estos ciclos; el acceso opcional
+`envs/db-access` usa un tercer estado y se elimina antes de `envs/aws`:
 
 | | `envs/shared` | `envs/aws` |
 |---|---|---|
@@ -30,7 +30,7 @@ brew install --cask docker
 export PATH="$(brew --prefix node@22)/bin:$PATH"
 ```
 
-Se necesita Terraform >= 1.6 y AWS CLI v2. Docker solo hace falta para
+Se necesita Terraform >= 1.10 y AWS CLI v2. Docker solo hace falta para
 construir imagenes a mano; con el pipeline en marcha, no.
 
 ## 1.2 Perfil de AWS
@@ -400,6 +400,99 @@ Para publicar sin pasar por GitHub siguen existiendo `scripts/release-plan.sh`
 en el orquestador y `make migrate-image ENV=aws`, que calculan exactamente los
 mismos tags.
 
+## 2.7 Acceso a RDS desde DBeaver
+
+El stack `envs/db-access` crea una EC2 `t4g.micro` privada con SSM, disco gp3
+cifrado de 8 GiB, IAM y una regla TCP 5432. Usa el NAT existente. El documento
+SSM fija el endpoint de RDS; solo se puede elegir el puerto local. Los recursos
+llevan `Project=CONGENIA`, `Component=db-access`, `Environment=prod` y nombre
+`congenia-prod-db-access`. El estado usa `congenia/db-access/terraform.tfstate`
+en el mismo backend S3; los comandos nunca aplican el stack principal.
+
+**Preparación única sobre una VPC existente.** Renovar primero las credenciales
+AWS y conservar las variables del entorno vigente (dominio, prefijo y opciones).
+Para una plataforma actualmente encendida:
+
+```bash
+export AWS_PROFILE=congenia
+export AWS_REGION=us-east-1
+aws sts get-caller-identity
+export TF_VAR_enable_services=true
+make db-access-prepare ENV=aws
+make plan ENV=aws
+# Solo después de revisar el plan:
+make apply ENV=aws
+```
+
+`db-access-prepare` importa las tres reglas existentes del SG `data` a recursos
+individuales de Terraform: no modifica tráfico ni recrea el grupo. Puede
+reintentarse; si una regla falta o es ambigua, se detiene. Para ver únicamente
+los IDs antes de importar: `./scripts/migrate-data-sg-rules.sh envs/aws`.
+El plan debe conservar RDS, VPC y servicios, sin revocar accesos; publicar el
+output `db_access_context` permite crear el acceso. En instalaciones nuevas las
+reglas nacen directamente y no requieren importación. **No usar un apply con
+las opciones por defecto sobre una plataforma encendida**: `enable_services`
+vale false por defecto. Tampoco usar `-target` para el funcionamiento habitual.
+
+**Uso desde Mac.** Instalar el [Session Manager plugin para macOS](https://docs.aws.amazon.com/systems-manager/latest/userguide/install-plugin-macos-overview.html)
+y comprobar `session-manager-plugin --version`. Después:
+
+```bash
+make db-access-plan
+make db-access-up           # crea o enciende; espera SSM Online
+make db-access-status
+make db-access-tunnel       # dejar la terminal abierta
+# Puerto alternativo: DB_ACCESS_LOCAL_PORT=15433 make db-access-tunnel
+```
+
+En DBeaver: PostgreSQL, host `127.0.0.1`, puerto `15432`, base `congenia`,
+credenciales PostgreSQL y túnel SSH desactivado. En SSL usar `sslmode=verify-ca`
+y la CA de [RDS](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html)
+en `sslrootcert` (por ejemplo `global-bundle.pem`). `verify-ca` comprueba la CA;
+`verify-full` exige además conservar el hostname real de RDS en la conexión,
+que no coincide con localhost. Los usuarios de Keycloak no autentican contra
+PostgreSQL. Para consultas, usar un usuario SQL de solo lectura ya provisionado;
+este componente no crea usuarios ni modifica el esquema.
+
+El contrato sin contraseñas se guarda automáticamente en
+`envs/db-access/connection.auto.tfvars.json` (ignorado por Git). No editar su
+destino mientras el acceso exista. Se conserva si falla la limpieza y se borra
+cuando AWS confirma la eliminación. Para otra cuenta se hereda la configuración
+del backend de 1.3. `DB_ACCESS_CORE_DIR` permite usar otro directorio principal.
+Una recreación de la VPC requiere destruir primero el acceso anterior.
+
+El administrador puede asignar la política operadora a identidades IAM
+existentes mediante `operator_role_names` / `operator_user_names` en
+`envs/db-access/operators.auto.tfvars`; por ejemplo:
+`operator_role_names = ["operador-db"]`. Terraform retira esas asignaciones al
+destruir. No adjuntar la política manualmente: una asignación externa bloquearía
+su eliminación. Una identidad que ya tenga permisos suficientes puede usarla
+sin asignaciones nuevas. La política operadora permite túnel, consultas de
+estado y start/stop; crear/destruir sigue requiriendo permisos de infraestructura
+y acceso al backend. `db-access-up` también ejecuta Terraform; para un operador
+sin esos permisos, el administrador provisiona y el operador enciende desde EC2
+(o `aws ec2 start-instances --instance-ids <id>`) antes de abrir el túnel.
+
+**Apagado y eliminación.** Ctrl-C cierra el túnel pero deja la máquina encendida:
+
+```bash
+make db-access-stop
+make db-access-destroy CONFIRM_DESTROY=destroy-congenia-db-access
+make db-access-verify
+```
+
+`stop` espera hasta `stopped`: cesa el cómputo, permanece EBS. `destroy` elimina
+EC2, su disco, SG, reglas, IAM/asignaciones y documento SSM, y verifica contra AWS.
+La auditoría detecta también snapshots etiquetados y recursos parciales; no borra
+manualmente recursos ajenos al estado. Si falla, reporta IDs y conserva el
+contrato para diagnosticar/reintentar. `status` y `verify` son consultas y no
+encienden recursos. Session Manager para EC2 no tiene cargo adicional; NAT/RDS
+conservan su coste. El backend de Terraform también permanece.
+
+Validación local sin AWS: `make test-db-access` y, tras inicializar el módulo,
+`terraform -chdir=modules/db-access test`. Son pruebas simuladas; la aceptación
+real requiere conectar DBeaver, detener/encender y destruir/verificar en AWS.
+
 ---
 
 # Parte 3 — Apagar
@@ -410,7 +503,8 @@ mismos tags.
 make close ENV=aws
 ```
 
-Lleva Fargate a cero sin borrar datos ni red. NAT, ALB, RDS y Redis siguen
+Lleva Fargate a cero y detiene db-access si existe, sin borrar datos ni red.
+`make stop` es un alias de `close`; EBS del acceso permanece. NAT, ALB, RDS y Redis siguen
 cobrando. Para una pausa de horas.
 
 ## 3.2 Destruir el entorno
@@ -420,6 +514,7 @@ make destroy ENV=aws CONFIRM_DESTROY=destroy-congenia-aws
 make cost-status
 ```
 
+Primero elimina y verifica db-access; si falla, no sigue con la VPC.
 Elimina todo el gasto significativo: NAT, ALB, RDS sin snapshot final, Redis,
 Fargate, secretos y el bucket de documentos. **Conserva imagenes, DNS e
 identidad de CI**, asi que volver es `make up-aws` sin republicar nada ni tocar
@@ -433,7 +528,7 @@ Es el habito recomendado para una pausa larga. Los datos se pierden.
 make nuke CONFIRM_DESTROY=destroy-congenia-todo
 ```
 
-Destruye `envs/aws` y **despues** `envs/shared` —el orden es obligatorio,
+Destruye primero `envs/db-access`, luego `envs/aws` y **despues** `envs/shared` —el orden es obligatorio,
 porque `envs/aws` lee los repositorios ECR desde el otro stack—. Borra tambien
 las imagenes, la zona DNS y el rol de CI.
 

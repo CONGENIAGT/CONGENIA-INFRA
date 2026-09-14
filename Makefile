@@ -14,7 +14,8 @@ TF_ARGS  = $(VAR_FILE) $(TF_VARS)
 
 .PHONY: help init plan create apply open close smoke smoke-integration \
 	destroy nuke verify-teardown fmt validate up-aws migrate migrate-image \
-	cost-status
+	cost-status stop db-access-prepare db-access-plan db-access-up \
+	db-access-status db-access-tunnel db-access-stop db-access-destroy db-access-verify test-db-access
 
 help:
 	@echo "make up-aws    - ciclo completo: create + migrate + open + smoke"
@@ -23,6 +24,9 @@ help:
 	@echo "make create    - crea o actualiza la infraestructura"
 	@echo "make open      - arranca los servicios oficiales"
 	@echo "make close     - detiene las tareas sin destruir datos"
+	@echo "make stop      - alias de close; tambien detiene db-access"
+	@echo "make db-access-prepare - importa las reglas data existentes (solo estado)"
+	@echo "make db-access-{plan,up,status,tunnel,stop,destroy,verify} - acceso privado a PostgreSQL"
 	@echo "make smoke     - pruebas de salud a traves del ALB"
 	@echo "make smoke-integration - prueba OAuth y activacion (requiere SADC_CLIENT_SECRET)"
 	@echo "make migrate-image - construye y publica la imagen de migracion en ECR"
@@ -47,7 +51,22 @@ open: init
 	cd $(TFDIR) && $(TERRAFORM) apply -auto-approve $(TF_ARGS) -var=enable_services=true
 
 close: init
+	@./scripts/db-access.sh stop
 	cd $(TFDIR) && $(TERRAFORM) apply -auto-approve $(TF_ARGS) -var=enable_services=false
+
+stop: close
+
+db-access-prepare:
+	@TERRAFORM='$(TERRAFORM)' ./scripts/migrate-data-sg-rules.sh $(TFDIR) --apply $(TF_ARGS)
+
+db-access-plan db-access-up db-access-status db-access-tunnel db-access-stop db-access-verify:
+	@TERRAFORM='$(TERRAFORM)' ./scripts/db-access.sh $(patsubst db-access-%,%,$@)
+
+db-access-destroy:
+	@TERRAFORM='$(TERRAFORM)' CONFIRM_DESTROY='$(CONFIRM_DESTROY)' ./scripts/db-access.sh destroy
+
+test-db-access:
+	@python3 -m unittest discover -s tests -v
 
 smoke:
 	@./scripts/smoke-test.sh $(TFDIR)
@@ -80,11 +99,14 @@ up-aws:
 
 destroy:
 	@test "$(CONFIRM_DESTROY)" = "destroy-congenia-aws" || (echo "Confirma con CONFIRM_DESTROY=destroy-congenia-aws"; exit 1)
+	@$(MAKE) db-access-destroy CONFIRM_DESTROY=destroy-congenia-db-access
 	@$(MAKE) init ENV=aws
-	@resource_count=$$(cd $(TFDIR) && $(TERRAFORM) state list | wc -l | tr -d ' '); \
+	@state_json=$$(cd $(TFDIR) && $(TERRAFORM) show -json) || exit $$?; \
+	resource_count=$$(printf '%s' "$$state_json" | jq '[.. | objects | select(.mode? == "managed" and has("address"))] | length') || exit $$?; \
 	if [ "$$resource_count" -eq 0 ]; then \
 		echo "El estado AWS esta vacio; no hay recursos administrados que destruir."; \
 	else \
+		$(MAKE) db-access-prepare ENV=aws TF_VARS='$(TF_VARS)' && \
 		cd $(TFDIR) && \
 		$(TERRAFORM) apply -auto-approve $(TF_ARGS) -var=enable_services=false -var=allow_destroy=true -var=manage_dns=false && \
 		$(TERRAFORM) destroy -auto-approve $(TF_ARGS) -var=enable_services=false -var=allow_destroy=true -var=manage_dns=false; \
@@ -125,7 +147,8 @@ nuke:
 		exit 1)
 	@echo "==> 0/4 comprobando que el destroy pueda completarse"
 	@$(MAKE) init ENV=aws >/dev/null
-	@huerfanos=$$(cd envs/aws && $(TERRAFORM) state list 2>/dev/null | grep 'aws_ecr_repository' | grep -v '^data\.' || true); \
+	@state_json=$$(cd envs/aws && $(TERRAFORM) show -json) || exit $$?; \
+	huerfanos=$$(printf '%s' "$$state_json" | jq -r '.. | objects | select(.mode? == "managed" and .type? == "aws_ecr_repository") | .address') || exit $$?; \
 	if [ -n "$$huerfanos" ]; then \
 		echo ""; \
 		echo "  ABORTADO — hay repositorios ECR en el estado de envs/aws:"; \
@@ -153,7 +176,7 @@ nuke:
 		$(TERRAFORM) apply -auto-approve -var=allow_destroy=true && \
 		$(TERRAFORM) destroy -auto-approve -var=allow_destroy=true
 	@echo "==> 3/4 comprobando contra AWS que no quedo nada"
-	@./scripts/verify-teardown.sh || true
+	@./scripts/verify-teardown.sh
 	@echo "==> 4/4 perimetro fuera de Terraform"
 	@./scripts/verify-teardown.sh --perimetro
 	@$(MAKE) cost-status
@@ -173,4 +196,3 @@ validate: init
 cost-status:
 	@aws freetier get-account-plan-state --region us-east-1 \
 		--query '{plan:accountPlanType,status:accountPlanStatus,creditos:accountPlanRemainingCredits,vence:accountPlanExpirationDate}'
-

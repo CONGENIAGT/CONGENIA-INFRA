@@ -31,7 +31,7 @@ Los módulos compartidos viven en `modules/`; el cableado, en `envs/`.
 
 ## Requisitos
 
-- Terraform `>= 1.6`
+- Terraform `>= 1.10`
 - AWS CLI v2 y credenciales del proyecto
 - `jq`, `curl`, Bash y GNU Make
 - Docker con `buildx` solo si se va a publicar una imagen a mano; el pipeline
@@ -220,12 +220,35 @@ más de un día de backup o más de una tarea por servicio. Para cambiar esas
 decisiones se debe desactivar explícitamente el perfil y revisar presupuesto.
 
 NAT, ALB, RDS y Redis siguen consumiendo créditos aunque las tareas estén en
-cero. `make close` reduce Fargate; para detener todo consumo hay que destruir
+cero. `make close` reduce Fargate y detiene la EC2 de acceso; para detener todo consumo hay que destruir
 la infraestructura.
+
+## Acceso desde DBeaver
+
+`db-access` es un stack independiente: una EC2 privada con SSM y un túnel a
+RDS. Usa la red existente y se identifica por `Component=db-access` y el
+nombre `congenia-prod-db-access`. No se crea con `make up-aws`.
+
+```bash
+make db-access-plan
+make db-access-up
+make db-access-status
+make db-access-tunnel       # DBeaver: 127.0.0.1:15432, base congenia, SSL
+make db-access-stop         # detiene EC2; conserva el disco EBS
+make db-access-destroy CONFIRM_DESTROY=destroy-congenia-db-access
+make db-access-verify       # consulta AWS; errores no equivalen a ausencia
+```
+
+Antes del primer uso sobre infraestructura existente, seguir la preparación
+única y la configuración SSL en [DEPLOY.md, sección 2.7](docs/DEPLOY.md#27-acceso-a-rds-desde-dbeaver).
+`close` / `stop` también detienen este acceso; `destroy` y `nuke` lo eliminan
+primero. El cierre del túnel con Ctrl-C **no apaga la EC2**. La eliminación
+incluye volumen, reglas, IAM y documento SSM; conserva el estado remoto.
 
 ## Destrucción automatizada
 
-El estado está partido en dos stacks, y eso define qué borra cada comando:
+Los stacks principales se conservan; `envs/db-access` tiene estado propio y
+se destruye antes de `envs/aws`:
 
 | | `envs/shared` | `envs/aws` |
 |---|---|---|
