@@ -5,5 +5,5 @@ image_tags = {
   "frontend"   = "1.0.0-7d3effb"
   "pdf-worker" = "1.0.0-47fb71e"
   "keycloak"   = "26.6.1-2791082"
-  "migrate"    = "schema-55f6e2a"
+  "migrate"    = "schema-70abe44"
 }
