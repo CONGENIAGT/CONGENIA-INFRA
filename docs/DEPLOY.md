@@ -305,7 +305,9 @@ Un `503` entre `create` y `open` es normal: los servicios estan en cero.
 ## 2.4 Configurar Keycloak
 
 Idempotente. Verifica y repara los scopes OIDC estandar, el cliente web PKCE,
-el rol `medico` y el usuario inicial.
+los roles `medico`/`congenia-admin`, el mapper firmado `tenants` y el usuario
+inicial. El backend usa `tenants` desde el access token como autoridad para
+filtrar fichas y adendas; sin ese atributo el usuario no ve datos clinicos.
 
 ```bash
 export KEYCLOAK_BASE_URL="$(terraform -chdir=envs/aws output -raw public_url)"
@@ -320,15 +322,21 @@ export KEYCLOAK_MEDICO_PASSWORD="$(aws secretsmanager get-secret-value \
   --secret-id "$(terraform -chdir=envs/aws output -raw keycloak_medico_initial_secret_arn)" \
   --query SecretString --output text)"
 
+# Defaults productivos del usuario inicial. Cambiarlos antes de ejecutar el
+# script si el primer revisor debe pertenecer a otras instituciones o no debe
+# revisar adendas.
+export KEYCLOAK_MEDICO_TENANTS="${KEYCLOAK_MEDICO_TENANTS:-254}"
+export KEYCLOAK_MEDICO_REALM_ROLES="${KEYCLOAK_MEDICO_REALM_ROLES:-medico,congenia-admin}"
+
 ./scripts/configure-keycloak-web.sh
 
-unset KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_MEDICO_PASSWORD
+unset KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_MEDICO_PASSWORD KEYCLOAK_MEDICO_TENANTS KEYCLOAK_MEDICO_REALM_ROLES
 ```
 
 Exigir el mensaje final:
 
 ```text
-OK: congenia-web verificado con scopes profile, email y roles; usuario medico.inicial configurado.
+OK: congenia-web verificado con scopes profile, email, roles y tenants; usuario medico.inicial configurado.
 ```
 
 ## 2.5 Probar
