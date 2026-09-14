@@ -3,7 +3,7 @@
 image_tags = {
   "api"        = "1.0.0-415cff9"
   "frontend"   = "1.0.0-7d3effb"
-  "pdf-worker" = "1.0.0-47fb71e"
+  "pdf-worker" = "1.0.0-921f485"
   "keycloak"   = "26.6.1-925d47b"
   "migrate"    = "schema-70abe44"
 }
