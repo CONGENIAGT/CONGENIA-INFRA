@@ -163,7 +163,8 @@ make smoke ENV=aws
 
 # Solo es necesario al actualizar un realm que ya existia: el import de
 # arranque de Keycloak no sobrescribe realms persistidos. El script restaura
-# profile/email/roles desde el realm master, los asigna y verifica el resultado.
+# profile/email/roles desde el realm master, agrega tenants al token, asigna
+# roles clinicos/dashboard y verifica el resultado.
 export KEYCLOAK_BASE_URL="$(terraform -chdir=envs/aws output -raw public_url)"
 export KEYCLOAK_ADMIN_PASSWORD="$(aws secretsmanager get-secret-value \
   --secret-id "$(terraform -chdir=envs/aws output -raw keycloak_admin_secret_arn)" \
@@ -171,8 +172,10 @@ export KEYCLOAK_ADMIN_PASSWORD="$(aws secretsmanager get-secret-value \
 export KEYCLOAK_MEDICO_PASSWORD="$(aws secretsmanager get-secret-value \
   --secret-id "$(terraform -chdir=envs/aws output -raw keycloak_medico_initial_secret_arn)" \
   --query SecretString --output text)"
+export KEYCLOAK_MEDICO_TENANTS="${KEYCLOAK_MEDICO_TENANTS:-254}"
+export KEYCLOAK_MEDICO_REALM_ROLES="${KEYCLOAK_MEDICO_REALM_ROLES:-medico,congenia-admin}"
 ./scripts/configure-keycloak-web.sh
-unset KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_MEDICO_PASSWORD
+unset KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_MEDICO_PASSWORD KEYCLOAK_MEDICO_TENANTS KEYCLOAK_MEDICO_REALM_ROLES
 
 export SADC_CLIENT_SECRET="$(aws secretsmanager get-secret-value \
   --secret-id "$(terraform -chdir=envs/aws output -raw sadc_client_secret_arn)" \
@@ -183,8 +186,9 @@ unset SADC_CLIENT_SECRET
 
 El acceso web inicial usa `medico.inicial` y la contraseña del secreto
 `keycloak_medico_initial_secret_arn`; Keycloak exige cambiarla en el primer
-login. Los médicos posteriores deben crearse con el rol de realm `medico` y el
-atributo `especialidad`.
+login. Los médicos posteriores deben crearse con el rol de realm `medico`, el
+atributo `especialidad` y el atributo multivalor `tenants`. Quien revise
+adendas en el dashboard necesita ademas el rol `congenia-admin`.
 
 Con el perfil menor a 1 TPS se espera `1/1` para frontend, API, Keycloak,
 RabbitMQ y PDF worker.

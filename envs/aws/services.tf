@@ -175,6 +175,7 @@ module "api" {
     OIDC_AUDIENCE          = "congenia-api"
     OIDC_WEB_CLIENT_ID     = "congenia-web"
     SESSION_EXPIRY_MINUTES = "60"
+    DEFAULT_TENANT_ID      = "254"
 
     FRONTEND_BASE_URL = local.public_url
     CORS_ORIGINS      = local.public_url
@@ -253,10 +254,13 @@ module "frontend" {
   desired_count    = var.enable_services ? lookup(var.service_desired_counts, "frontend", 1) : 0
 
   environment = {
-    API_BASE_URL   = ""
-    APP_ENV        = var.environment
-    OIDC_AUTHORITY = "${local.public_url}/realms/congenia"
-    OIDC_CLIENT_ID = "congenia-web"
+    API_BASE_URL          = ""
+    APP_ENV               = var.environment
+    USE_ADENDAS_MOCK      = "false"
+    USE_FICHA_SEARCH_MOCK = "false"
+    ALLOW_DEV_SESSION     = "false"
+    OIDC_AUTHORITY        = "${local.public_url}/realms/congenia"
+    OIDC_CLIENT_ID        = "congenia-web"
   }
 
   subnet_ids             = module.network.app_subnet_ids

@@ -9,6 +9,8 @@ admin_user="${KEYCLOAK_ADMIN_USERNAME:-admin}"
 medico_user="${KEYCLOAK_MEDICO_USERNAME:-medico.inicial}"
 medico_name="${KEYCLOAK_MEDICO_NAME:-Medico Inicial}"
 medico_specialty="${KEYCLOAK_MEDICO_SPECIALTY:-Genetica Clinica}"
+medico_tenants="${KEYCLOAK_MEDICO_TENANTS:-254}"
+medico_realm_roles="${KEYCLOAK_MEDICO_REALM_ROLES:-medico,congenia-admin}"
 base_url="${KEYCLOAK_BASE_URL%/}"
 realm_url="${base_url}/admin/realms/congenia"
 
@@ -92,10 +94,19 @@ for standard_scope in basic profile email roles; do
   ensure_standard_scope "$standard_scope"
 done
 
-if ! curl -fsS -o /dev/null "${auth[@]}" "${realm_url}/roles/medico" 2>/dev/null; then
-  curl -fsS -o /dev/null -X POST "${auth[@]}" "${realm_url}/roles" \
-    -d '{"name":"medico","description":"Puede iniciar fichas clinicas desde el cliente web"}'
-fi
+ensure_role() {
+  local role_name="$1"
+  local description="$2"
+
+  if ! curl -fsS -o /dev/null "${auth[@]}" "${realm_url}/roles/${role_name}" 2>/dev/null; then
+    jq -nca --arg name "$role_name" --arg description "$description" \
+      '{name: $name, description: $description}' |
+      curl -fsS -o /dev/null -X POST "${auth[@]}" "${realm_url}/roles" -d @-
+  fi
+}
+
+ensure_role "medico" "Puede iniciar fichas clinicas desde el cliente web"
+ensure_role "congenia-admin" "Puede revisar y resolver adendas en el dashboard"
 
 client_json="$(jq -nca --arg origin "$base_url" '{
   clientId: "congenia-web",
@@ -130,6 +141,21 @@ client_json="$(jq -nca --arg origin "$base_url" '{
       }
     },
     {
+      name: "tenants",
+      protocol: "openid-connect",
+      protocolMapper: "oidc-usermodel-attribute-mapper",
+      consentRequired: false,
+      config: {
+        "user.attribute": "tenants",
+        "claim.name": "tenants",
+        "jsonType.label": "String",
+        "access.token.claim": "true",
+        "id.token.claim": "false",
+        "userinfo.token.claim": "true",
+        "multivalued": "true"
+      }
+    },
+    {
       name: "congenia-api-audience",
       protocol: "openid-connect",
       protocolMapper: "oidc-audience-mapper",
@@ -158,27 +184,51 @@ for standard_scope in basic profile email roles; do
 done
 
 user_uuid="$(curl -fsS "${auth[@]}" "${realm_url}/users?exact=true&username=${medico_user}" | jq -er '.[0].id // empty' || true)"
+tenants_json="$(jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))' <<<"$medico_tenants")"
 if [[ -z "$user_uuid" ]]; then
   user_json="$(jq -nca \
     --arg username "$medico_user" \
     --arg name "$medico_name" \
     --arg specialty "$medico_specialty" \
+    --argjson tenants "$tenants_json" \
     --arg password "$KEYCLOAK_MEDICO_PASSWORD" \
     '{
       username: $username,
       enabled: true,
       firstName: $name,
-      attributes: {especialidad: [$specialty]},
+      attributes: {especialidad: [$specialty], tenants: $tenants},
       credentials: [{type: "password", value: $password, temporary: true}]
     }')"
   curl -fsS -o /dev/null -X POST "${auth[@]}" "${realm_url}/users" -d "$user_json"
   user_uuid="$(curl -fsS "${auth[@]}" "${realm_url}/users?exact=true&username=${medico_user}" | jq -er '.[0].id')"
+else
+  user_json="$(curl -fsS "${auth[@]}" "${realm_url}/users/${user_uuid}" |
+    jq -ca \
+      --arg name "$medico_name" \
+      --arg specialty "$medico_specialty" \
+      --argjson tenants "$tenants_json" \
+      '.firstName = $name
+       | .enabled = true
+       | .attributes = ((.attributes // {}) + {especialidad: [$specialty], tenants: $tenants})')"
+  curl -fsS -o /dev/null -X PUT "${auth[@]}" "${realm_url}/users/${user_uuid}" -d "$user_json"
 fi
 
-role_json="$(curl -fsS "${auth[@]}" "${realm_url}/roles/medico")"
-curl -fsS -o /dev/null -X POST "${auth[@]}" \
-  "${realm_url}/users/${user_uuid}/role-mappings/realm" \
-  -d "[$role_json]"
+roles_json="$(
+  jq -Rr 'split(",")[] | gsub("^\\s+|\\s+$"; "") | select(length > 0)' <<<"$medico_realm_roles" |
+  while IFS= read -r role_name; do
+    curl -fsS "${auth[@]}" "${realm_url}/roles/${role_name}"
+  done |
+  jq -s '.'
+)"
+assigned_roles="$(curl -fsS "${auth[@]}" "${realm_url}/users/${user_uuid}/role-mappings/realm")"
+missing_roles="$(jq -nca --argjson desired "$roles_json" --argjson assigned "$assigned_roles" '
+  $desired | map(select(.name as $role_name | all($assigned[]?; .name != $role_name)))
+')"
+if [[ "$(jq -r 'length' <<<"$missing_roles")" -gt 0 ]]; then
+  curl -fsS -o /dev/null -X POST "${auth[@]}" \
+    "${realm_url}/users/${user_uuid}/role-mappings/realm" \
+    -d "$missing_roles"
+fi
 
 client_defaults="$(curl -fsS "${auth[@]}" "${realm_url}/clients/${client_uuid}/default-client-scopes")"
 for standard_scope in profile email roles; do
@@ -193,15 +243,28 @@ curl -fsS "${auth[@]}" "${realm_url}/clients/${client_uuid}" |
     .enabled == true and
     .publicClient == true and
     .standardFlowEnabled == true and
-    .attributes["pkce.code.challenge.method"] == "S256"
+    .attributes["pkce.code.challenge.method"] == "S256" and
+    any(.protocolMappers[]?; .name == "tenants" and .config["access.token.claim"] == "true")
   ' >/dev/null || {
-    echo 'FALLA: congenia-web no conserva la configuración pública con PKCE S256.' >&2
+    echo 'FALLA: congenia-web no conserva PKCE S256 o el mapper tenants.' >&2
     exit 1
   }
 
-curl -fsS "${auth[@]}" "${realm_url}/users/${user_uuid}/role-mappings/realm" |
-  jq -e 'any(.name == "medico")' >/dev/null || {
-    echo "FALLA: ${medico_user} no tiene el rol medico." >&2
+user_roles="$(curl -fsS "${auth[@]}" "${realm_url}/users/${user_uuid}/role-mappings/realm")"
+jq -Rr 'split(",")[] | gsub("^\\s+|\\s+$"; "") | select(length > 0)' <<<"$medico_realm_roles" |
+while IFS= read -r role_name; do
+  jq -e --arg name "$role_name" 'any(.name == $name)' <<<"$user_roles" >/dev/null || {
+    echo "FALLA: ${medico_user} no tiene el rol ${role_name}." >&2
+    exit 1
+  }
+done
+
+curl -fsS "${auth[@]}" "${realm_url}/users/${user_uuid}" |
+  jq -e --argjson tenants "$tenants_json" '
+    (.attributes.tenants // []) == $tenants and
+    ((.attributes.especialidad // [])[0] | length > 0)
+  ' >/dev/null || {
+    echo "FALLA: ${medico_user} no tiene tenants/especialidad configurados." >&2
     exit 1
   }
 
@@ -226,4 +289,4 @@ if [[ "$authorization_probe" == *invalid_scope* ]]; then
   exit 1
 fi
 
-echo "OK: congenia-web verificado con scopes profile, email y roles; usuario ${medico_user} configurado."
+echo "OK: congenia-web verificado con scopes profile, email, roles y tenants; usuario ${medico_user} configurado."
