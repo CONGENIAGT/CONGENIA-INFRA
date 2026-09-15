@@ -9,8 +9,9 @@ admin_user="${KEYCLOAK_ADMIN_USERNAME:-admin}"
 medico_user="${KEYCLOAK_MEDICO_USERNAME:-medico.inicial}"
 medico_name="${KEYCLOAK_MEDICO_NAME:-Medico Inicial}"
 medico_specialty="${KEYCLOAK_MEDICO_SPECIALTY:-Genetica Clinica}"
-medico_tenants="${KEYCLOAK_MEDICO_TENANTS:-254}"
-medico_realm_roles="${KEYCLOAK_MEDICO_REALM_ROLES:-medico,congenia-admin}"
+medico_tenants="${KEYCLOAK_MEDICO_TENANTS:-23,254}"
+superadmin_user="${KEYCLOAK_SUPERADMIN_USERNAME:-admin-doctor}"
+sadc_tenant="${KEYCLOAK_SADC_TENANT:-254}"
 base_url="${KEYCLOAK_BASE_URL%/}"
 realm_url="${base_url}/admin/realms/congenia"
 
@@ -107,6 +108,9 @@ ensure_role() {
 
 ensure_role "medico" "Puede iniciar fichas clinicas desde el cliente web"
 ensure_role "congenia-admin" "Puede revisar y resolver adendas en el dashboard"
+ensure_role "congenia-coordinador" "Puede consultar y coordinar expedientes asignados"
+ensure_role "congenia-genetista" "Puede crear fichas y adendas como genetista"
+ensure_role "congenia-superadmin" "Puede consultar todos los tenants y administrar catalogos"
 
 client_json="$(jq -nca --arg origin "$base_url" '{
   clientId: "congenia-web",
@@ -152,7 +156,8 @@ client_json="$(jq -nca --arg origin "$base_url" '{
         "access.token.claim": "true",
         "id.token.claim": "false",
         "userinfo.token.claim": "true",
-        "multivalued": "true"
+        "multivalued": "true",
+        "aggregate.attrs": "true"
       }
     },
     {
@@ -184,19 +189,17 @@ for standard_scope in basic profile email roles; do
 done
 
 user_uuid="$(curl -fsS "${auth[@]}" "${realm_url}/users?exact=true&username=${medico_user}" | jq -er '.[0].id // empty' || true)"
-tenants_json="$(jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))' <<<"$medico_tenants")"
 if [[ -z "$user_uuid" ]]; then
   user_json="$(jq -nca \
     --arg username "$medico_user" \
     --arg name "$medico_name" \
     --arg specialty "$medico_specialty" \
-    --argjson tenants "$tenants_json" \
     --arg password "$KEYCLOAK_MEDICO_PASSWORD" \
     '{
       username: $username,
       enabled: true,
       firstName: $name,
-      attributes: {especialidad: [$specialty], tenants: $tenants},
+      attributes: {especialidad: [$specialty]},
       credentials: [{type: "password", value: $password, temporary: true}]
     }')"
   curl -fsS -o /dev/null -X POST "${auth[@]}" "${realm_url}/users" -d "$user_json"
@@ -206,28 +209,137 @@ else
     jq -ca \
       --arg name "$medico_name" \
       --arg specialty "$medico_specialty" \
-      --argjson tenants "$tenants_json" \
       '.firstName = $name
        | .enabled = true
-       | .attributes = ((.attributes // {}) + {especialidad: [$specialty], tenants: $tenants})')"
+       | .attributes = ((.attributes // {}) + {especialidad: [$specialty]})
+       | del(.attributes.tenants)')"
   curl -fsS -o /dev/null -X PUT "${auth[@]}" "${realm_url}/users/${user_uuid}" -d "$user_json"
 fi
 
-roles_json="$(
-  jq -Rr 'split(",")[] | gsub("^\\s+|\\s+$"; "") | select(length > 0)' <<<"$medico_realm_roles" |
-  while IFS= read -r role_name; do
-    curl -fsS "${auth[@]}" "${realm_url}/roles/${role_name}"
-  done |
-  jq -s '.'
-)"
-assigned_roles="$(curl -fsS "${auth[@]}" "${realm_url}/users/${user_uuid}/role-mappings/realm")"
-missing_roles="$(jq -nca --argjson desired "$roles_json" --argjson assigned "$assigned_roles" '
-  $desired | map(select(.name as $role_name | all($assigned[]?; .name != $role_name)))
-')"
-if [[ "$(jq -r 'length' <<<"$missing_roles")" -gt 0 ]]; then
-  curl -fsS -o /dev/null -X POST "${auth[@]}" \
-    "${realm_url}/users/${user_uuid}/role-mappings/realm" \
-    -d "$missing_roles"
+group_id_by_path() {
+  local group_path="$1"
+  curl -fsS "${auth[@]}" "${realm_url}/group-by-path${group_path}" | jq -er '.id'
+}
+
+ensure_group() {
+  local parent_id="$1"
+  local group_name="$2"
+  local group_path="$3"
+  local attributes_json="${4:-{}}"
+  local group_id
+  local endpoint
+
+  group_id="$(group_id_by_path "$group_path" || true)"
+  if [[ -z "$group_id" ]]; then
+    if [[ -z "$parent_id" ]]; then
+      endpoint="${realm_url}/groups"
+    else
+      endpoint="${realm_url}/groups/${parent_id}/children"
+    fi
+    jq -nca --arg name "$group_name" --argjson attributes "$attributes_json" \
+      '{name: $name, attributes: $attributes}' |
+      curl -fsS -o /dev/null -X POST "${auth[@]}" "$endpoint" -d @-
+    group_id="$(group_id_by_path "$group_path")"
+  elif [[ "$attributes_json" != "{}" ]]; then
+    group_json="$(curl -fsS "${auth[@]}" "${realm_url}/groups/${group_id}" |
+      jq -ca --argjson attributes "$attributes_json" '.attributes = $attributes')"
+    curl -fsS -o /dev/null -X PUT "${auth[@]}" "${realm_url}/groups/${group_id}" -d "$group_json"
+  fi
+  printf '%s' "$group_id"
+}
+
+ensure_group_role() {
+  local group_id="$1"
+  local role_name="$2"
+  local role_json
+  local assigned
+  role_json="$(curl -fsS "${auth[@]}" "${realm_url}/roles/${role_name}")"
+  assigned="$(curl -fsS "${auth[@]}" "${realm_url}/groups/${group_id}/role-mappings/realm")"
+  if ! jq -e --arg name "$role_name" 'any(.name == $name)' <<<"$assigned" >/dev/null; then
+    jq -nca --argjson role "$role_json" '[$role]' |
+      curl -fsS -o /dev/null -X POST "${auth[@]}" \
+        "${realm_url}/groups/${group_id}/role-mappings/realm" -d @-
+  fi
+}
+
+remove_managed_roles() {
+  local mapping_url="$1"
+  local assigned
+  local managed
+  assigned="$(curl -fsS "${auth[@]}" "$mapping_url")"
+  managed="$(jq -ca '[.[] | select(.name == "medico" or .name == "congenia-admin" or .name == "congenia-coordinador" or .name == "congenia-genetista" or .name == "congenia-superadmin" or .name == "admin" or .name == "administrador" or .name == "genetista")]' <<<"$assigned")"
+  if [[ "$(jq -r 'length' <<<"$managed")" -gt 0 ]]; then
+    curl -fsS -o /dev/null -X DELETE "${auth[@]}" "$mapping_url" -d "$managed"
+  fi
+}
+
+institutions_id="$(ensure_group "" "instituciones" "/instituciones")"
+while IFS= read -r tenant_id; do
+  tenant_group_id="$(ensure_group "$institutions_id" "$tenant_id" "/instituciones/${tenant_id}" "$(jq -nca --arg tenant "$tenant_id" '{tenants: [$tenant]}')")"
+  for function_name in medicos revisores coordinadores genetistas; do
+    function_group_id="$(ensure_group "$tenant_group_id" "$function_name" "/instituciones/${tenant_id}/${function_name}")"
+    case "$function_name" in
+      medicos) ensure_group_role "$function_group_id" "medico" ;;
+      revisores) ensure_group_role "$function_group_id" "congenia-admin" ;;
+      coordinadores) ensure_group_role "$function_group_id" "congenia-coordinador" ;;
+      genetistas)
+        ensure_group_role "$function_group_id" "medico"
+        ensure_group_role "$function_group_id" "congenia-genetista"
+        ;;
+    esac
+  done
+done < <(jq -Rr 'split(",")[] | gsub("^\\s+|\\s+$"; "") | select(test("^[0-9]+$"))' <<<"$medico_tenants")
+
+while IFS= read -r tenant_id; do
+  medico_group_id="$(group_id_by_path "/instituciones/${tenant_id}/medicos")"
+  curl -fsS -o /dev/null -X PUT "${auth[@]}" "${realm_url}/users/${user_uuid}/groups/${medico_group_id}"
+done < <(jq -Rr 'split(",")[] | gsub("^\\s+|\\s+$"; "") | select(test("^[0-9]+$"))' <<<"$medico_tenants")
+remove_managed_roles "${realm_url}/users/${user_uuid}/role-mappings/realm"
+
+superadmin_group_id="$(ensure_group "" "superadministradores" "/superadministradores")"
+ensure_group_role "$superadmin_group_id" "congenia-superadmin"
+ensure_group_role "$superadmin_group_id" "congenia-admin"
+superadmin_uuid="$(curl -fsS "${auth[@]}" "${realm_url}/users?exact=true&username=${superadmin_user}" | jq -er '.[0].id // empty' || true)"
+if [[ -n "$superadmin_uuid" ]]; then
+  curl -fsS -o /dev/null -X PUT "${auth[@]}" "${realm_url}/users/${superadmin_uuid}/groups/${superadmin_group_id}"
+  superadmin_json="$(curl -fsS "${auth[@]}" "${realm_url}/users/${superadmin_uuid}" | jq -ca 'del(.attributes.tenants)')"
+  curl -fsS -o /dev/null -X PUT "${auth[@]}" "${realm_url}/users/${superadmin_uuid}" -d "$superadmin_json"
+  remove_managed_roles "${realm_url}/users/${superadmin_uuid}/role-mappings/realm"
+fi
+
+for legacy_path in "/SADC-Congenia" "/SADC-Congenia/Admin" "/SADC-Congenia/Medicos"; do
+  legacy_group_id="$(group_id_by_path "$legacy_path" || true)"
+  if [[ -n "$legacy_group_id" ]]; then
+    remove_managed_roles "${realm_url}/groups/${legacy_group_id}/role-mappings/realm"
+  fi
+done
+
+sadc_uuid="$(curl -fsS "${auth[@]}" "${realm_url}/clients?clientId=sadc" | jq -er '.[0].id // empty' || true)"
+if [[ -z "$sadc_uuid" ]]; then
+  echo 'FALLA: no existe el cliente OAuth sadc.' >&2
+  exit 1
+fi
+sadc_mappers_url="${realm_url}/clients/${sadc_uuid}/protocol-mappers/models"
+sadc_mapper_id="$(curl -fsS "${auth[@]}" "$sadc_mappers_url" | jq -er '.[] | select(.name == "tenant-id") | .id' | head -n 1 || true)"
+sadc_mapper="$(jq -nca --arg tenant "$sadc_tenant" '{
+  name: "tenant-id",
+  protocol: "openid-connect",
+  protocolMapper: "oidc-hardcoded-claim-mapper",
+  consentRequired: false,
+  config: {
+    "claim.name": "tenant_id",
+    "claim.value": $tenant,
+    "jsonType.label": "String",
+    "access.token.claim": "true",
+    "id.token.claim": "false",
+    "userinfo.token.claim": "false"
+  }
+}')"
+if [[ -z "$sadc_mapper_id" ]]; then
+  curl -fsS -o /dev/null -X POST "${auth[@]}" "$sadc_mappers_url" -d "$sadc_mapper"
+else
+  sadc_mapper="$(jq --arg id "$sadc_mapper_id" '.id = $id' <<<"$sadc_mapper")"
+  curl -fsS -o /dev/null -X PUT "${auth[@]}" "$sadc_mappers_url/${sadc_mapper_id}" -d "$sadc_mapper"
 fi
 
 client_defaults="$(curl -fsS "${auth[@]}" "${realm_url}/clients/${client_uuid}/default-client-scopes")"
@@ -244,29 +356,32 @@ curl -fsS "${auth[@]}" "${realm_url}/clients/${client_uuid}" |
     .publicClient == true and
     .standardFlowEnabled == true and
     .attributes["pkce.code.challenge.method"] == "S256" and
-    any(.protocolMappers[]?; .name == "tenants" and .config["access.token.claim"] == "true")
+    any(.protocolMappers[]?; .name == "tenants" and .config["access.token.claim"] == "true" and .config["aggregate.attrs"] == "true")
   ' >/dev/null || {
-    echo 'FALLA: congenia-web no conserva PKCE S256 o el mapper tenants.' >&2
+    echo 'FALLA: congenia-web no conserva PKCE S256 o el mapper agregado de tenants.' >&2
     exit 1
   }
 
-user_roles="$(curl -fsS "${auth[@]}" "${realm_url}/users/${user_uuid}/role-mappings/realm")"
-jq -Rr 'split(",")[] | gsub("^\\s+|\\s+$"; "") | select(length > 0)' <<<"$medico_realm_roles" |
-while IFS= read -r role_name; do
-  jq -e --arg name "$role_name" 'any(.name == $name)' <<<"$user_roles" >/dev/null || {
-    echo "FALLA: ${medico_user} no tiene el rol ${role_name}." >&2
+medico_groups="$(curl -fsS "${auth[@]}" "${realm_url}/users/${user_uuid}/groups")"
+while IFS= read -r tenant_id; do
+  jq -e --arg path "/instituciones/${tenant_id}/medicos" 'any(.path == $path)' <<<"$medico_groups" >/dev/null || {
+    echo "FALLA: ${medico_user} no pertenece al grupo medico del tenant ${tenant_id}." >&2
     exit 1
   }
-done
+done < <(jq -Rr 'split(",")[] | gsub("^\\s+|\\s+$"; "") | select(test("^[0-9]+$"))' <<<"$medico_tenants")
 
 curl -fsS "${auth[@]}" "${realm_url}/users/${user_uuid}" |
-  jq -e --argjson tenants "$tenants_json" '
-    (.attributes.tenants // []) == $tenants and
-    ((.attributes.especialidad // [])[0] | length > 0)
-  ' >/dev/null || {
-    echo "FALLA: ${medico_user} no tiene tenants/especialidad configurados." >&2
+  jq -e '(.attributes.tenants // []) | length == 0' >/dev/null || {
+    echo "FALLA: ${medico_user} todavia tiene tenants asignados directamente." >&2
     exit 1
   }
+
+curl -fsS "${auth[@]}" "$sadc_mappers_url" |
+  jq -e --arg tenant "$sadc_tenant" 'any(.[]; .name == "tenant-id" and .config["claim.value"] == $tenant)' >/dev/null || {
+    echo 'FALLA: el cliente sadc no emite tenant_id.' >&2
+    exit 1
+  }
+
 
 authorization_probe="$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' -G \
   "${base_url}/realms/congenia/protocol/openid-connect/auth" \

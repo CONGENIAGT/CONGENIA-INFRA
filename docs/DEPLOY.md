@@ -322,15 +322,15 @@ export KEYCLOAK_MEDICO_PASSWORD="$(aws secretsmanager get-secret-value \
   --secret-id "$(terraform -chdir=envs/aws output -raw keycloak_medico_initial_secret_arn)" \
   --query SecretString --output text)"
 
-# Defaults productivos del usuario inicial. Cambiarlos antes de ejecutar el
-# script si el primer revisor debe pertenecer a otras instituciones o no debe
-# revisar adendas.
-export KEYCLOAK_MEDICO_TENANTS="${KEYCLOAK_MEDICO_TENANTS:-254}"
-export KEYCLOAK_MEDICO_REALM_ROLES="${KEYCLOAK_MEDICO_REALM_ROLES:-medico,congenia-admin}"
+# Defaults productivos. El medico recibe membresias por tenant; el usuario
+# administrativo recibe el grupo de superadministradores.
+export KEYCLOAK_MEDICO_TENANTS="${KEYCLOAK_MEDICO_TENANTS:-23,254}"
+export KEYCLOAK_SUPERADMIN_USERNAME="${KEYCLOAK_SUPERADMIN_USERNAME:-admin-doctor}"
+export KEYCLOAK_SADC_TENANT="${KEYCLOAK_SADC_TENANT:-254}"
 
 ./scripts/configure-keycloak-web.sh
 
-unset KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_MEDICO_PASSWORD KEYCLOAK_MEDICO_TENANTS KEYCLOAK_MEDICO_REALM_ROLES
+unset KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_MEDICO_PASSWORD KEYCLOAK_MEDICO_TENANTS KEYCLOAK_SUPERADMIN_USERNAME KEYCLOAK_SADC_TENANT
 ```
 
 Exigir el mensaje final:
