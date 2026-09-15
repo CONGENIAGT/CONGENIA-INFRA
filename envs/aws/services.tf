@@ -175,7 +175,6 @@ module "api" {
     OIDC_AUDIENCE          = "congenia-api"
     OIDC_WEB_CLIENT_ID     = "congenia-web"
     SESSION_EXPIRY_MINUTES = "60"
-    DEFAULT_TENANT_ID      = "254"
 
     FRONTEND_BASE_URL = local.public_url
     CORS_ORIGINS      = local.public_url
