@@ -4,6 +4,6 @@ image_tags = {
   "api"        = "1.0.0-9332cc4"
   "frontend"   = "1.0.0-11cb01f"
   "pdf-worker" = "1.0.0-921f485"
-  "keycloak"   = "26.6.1-b1757b3"
+  "keycloak"   = "26.6.1-eb28081"
   "migrate"    = "schema-5061b6c"
 }
