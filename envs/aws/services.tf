@@ -178,6 +178,9 @@ module "api" {
 
     FRONTEND_BASE_URL = local.public_url
     CORS_ORIGINS      = local.public_url
+
+    # El dashboard CIE-10 descarga el CSV revisado por URL firmada desde la API.
+    CIE10_REVIEW_EXPORT_S3_PREFIX = local.cie10_review_export_s3_uri
   })
 
   secrets = {
@@ -256,6 +259,7 @@ module "frontend" {
     API_BASE_URL          = ""
     APP_ENV               = var.environment
     USE_ADENDAS_MOCK      = "false"
+    USE_CIE10_MOCK        = "false"
     USE_FICHA_SEARCH_MOCK = "false"
     ALLOW_DEV_SESSION     = "false"
     OIDC_AUTHORITY        = "${local.public_url}/realms/congenia"

@@ -181,12 +181,13 @@ suya al mergear:
 | `CONGENIA-M1-SERVER` | `congenia/migrate` | merge que toque `db/` |
 | `CONGENIA-M1` | `congenia/frontend` | merge a `main` |
 | `CONGENIA-M1-PDF-WORKER` | `congenia/pdf-worker` | merge a `main` |
+| `CONGENIA-CIE10` | `congenia/cie10` | merge a `main` |
 | `CONGENIA-ORCH` | `congenia/keycloak` | merge que toque `keycloak/` |
 
 Cuatro propiedades que definen el diseno:
 
 **Sin llaves de AWS en GitHub.** Los workflows asumen un rol por OIDC, acotado
-por repositorio y rama. Ese rol solo puede publicar en los cinco repositorios
+por repositorio y rama. Ese rol solo puede publicar en los repositorios
 ECR: no despliega, no lee secretos, no toca RDS.
 
 **El pipeline publica; no despliega.** Termina abriendo un PR sobre
@@ -204,6 +205,11 @@ escape cuando no se quiere pasar por GitHub.
 
 Una lifecycle policy conserva las ultimas 20 imagenes por repositorio. Deja de
 ser opcional cuando se publica en cada merge.
+
+`CONGENIA-CIE10` publica imagen, pero no queda como servicio permanente. AWS lo
+ejecuta como task Fargate one-shot mediante EventBridge Scheduler al final de
+mes. La task prepara sugerencias en PostgreSQL; la revision humana sigue
+entrando por `CONGENIA-M1-SERVER` y `/dashboard/cie10`.
 
 ---
 
@@ -332,7 +338,7 @@ solo permite salida HTTPS y PostgreSQL; una regla propia en el SG `data` concede
 La red/RDS no dependen del estado del acceso. El orden de eliminación se aplica
 en Make: `db-access → aws → shared`. `Component=db-access` identifica EC2, EBS,
 reglas e IAM. El estado remoto permanece; el volumen se borra al terminar EC2.
-Procedimiento y costes en [DEPLOY.md §2.7](DEPLOY.md#27-acceso-a-rds-desde-dbeaver).
+Procedimiento y costes en [DEPLOY.md §2.8](DEPLOY.md#28-acceso-a-rds-desde-dbeaver).
 La evidencia histórica siguiente corresponde a la plataforma, no verifica este
 acceso nuevo, que requiere aceptación en AWS tras desplegarse.
 

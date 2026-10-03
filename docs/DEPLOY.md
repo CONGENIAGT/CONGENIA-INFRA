@@ -197,10 +197,11 @@ aws ecr describe-images --repository-name congenia/pdf-worker \
 Si falla en `configure-aws-credentials` con `AccessDenied`, el sujeto OIDC no
 coincide con la rama: revisar `var.ci_subjects` en `envs/shared`.
 
-Repetir para los cinco: `publish-image` en `CONGENIA-M1`,
-`CONGENIA-M1-SERVER` y `CONGENIA-M1-PDF-WORKER`, `publish-migrate` en
-`CONGENIA-M1-SERVER`, y `publish-keycloak` en `CONGENIA-ORCH`. Cada uno abre un
-PR aqui con su tag; mergearlos todos y comprobar que las cinco claves de
+Repetir para todos los artefactos: `publish-image` en `CONGENIA-M1`,
+`CONGENIA-M1-SERVER`, `CONGENIA-M1-PDF-WORKER` y `CONGENIA-CIE10`,
+`publish-migrate` en `CONGENIA-M1-SERVER`, y `publish-keycloak` en
+`CONGENIA-ORCH`. Cada uno abre un PR aqui con su tag; mergearlos todos y
+comprobar que las claves de
 `envs/aws/images.tfvars` tengan un tag real.
 
 > `workflow_dispatch` solo aparece en la interfaz si el archivo del workflow
@@ -377,7 +378,53 @@ open "$(terraform -chdir=envs/aws output -raw public_url)"
 El usuario inicial es `medico.inicial`, con password temporal en el secreto
 `keycloak_medico_initial_secret_arn`; hay que cambiarla al primer login.
 
-## 2.6 Publicar una version nueva
+## 2.6 Validar CIE-10
+
+La tarea manual CIE-10 **no** es la revision del medico en el dashboard. Es una
+corrida a demanda del mismo batch que EventBridge ejecuta al final de mes:
+lee los snapshots CSV desde S3, llama a OpenAI, llena las tablas `cie10_*` y
+deja la cola lista para `/dashboard/cie10`.
+
+Primero cargar los snapshots productivos:
+
+```bash
+DOCS_BUCKET="$(terraform -chdir=envs/aws output -raw docs_bucket)"
+
+aws s3 cp CIE10.csv "s3://${DOCS_BUCKET}/cie10/input/CIE10.csv"
+aws s3 cp CIE10_Traductor.csv "s3://${DOCS_BUCKET}/cie10/input/CIE10_Traductor.csv"
+```
+
+Luego cargar manualmente el secreto de OpenAI. El valor no se pasa por
+Terraform para evitar que viaje por tfvars o quede acoplado al flujo de plan:
+
+```bash
+aws secretsmanager put-secret-value \
+  --region us-east-1 \
+  --secret-id "$(terraform -chdir=envs/aws output -raw cie10_openai_secret_arn)" \
+  --secret-string "$OPENAI_API_KEY"
+```
+
+Ejecutar el batch a demanda, antes de esperar al scheduler mensual:
+
+```bash
+make cie10-batch ENV=aws
+```
+
+El script lanza la task Fargate `cie10`, espera a que termine, imprime los logs
+de `/ecs/congenia-prod/cie10` y falla si el contenedor termina con exit code
+distinto de cero. Despues de una corrida verde:
+
+1. Entrar con un usuario `congenia-admin`.
+2. Abrir `/dashboard/cie10`.
+3. Aceptar una sugerencia y rechazar otra escribiendo codigo y justificacion.
+4. Confirmar que la cola descuenta lo ya decidido.
+5. Descargar el CSV desde el boton del historial; la URL la firma la API desde
+   el prefijo `cie10/export/`.
+
+El scheduler queda activo desde el deploy y repetira esta corrida
+automaticamente con `cron(0 6 L * ? *)` en zona horaria `America/Guatemala`.
+
+## 2.7 Publicar una version nueva
 
 Ya no se construye nada a mano.
 
@@ -400,7 +447,7 @@ Para publicar sin pasar por GitHub siguen existiendo `scripts/release-plan.sh`
 en el orquestador y `make migrate-image ENV=aws`, que calculan exactamente los
 mismos tags.
 
-## 2.7 Acceso a RDS desde DBeaver
+## 2.8 Acceso a RDS desde DBeaver
 
 El stack `envs/db-access` crea una EC2 `t4g.micro` privada con SSM, disco gp3
 cifrado de 8 GiB, IAM y una regla TCP 5432. Usa el NAT existente. El documento

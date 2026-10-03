@@ -112,6 +112,21 @@ output "migrate_image_repository" {
   value = data.aws_ecr_repository.this["congenia/migrate"].repository_url
 }
 
+output "cie10_task_definition" {
+  description = "Task definition del batch mensual CIE-10."
+  value       = aws_ecs_task_definition.cie10.arn
+}
+
+output "cie10_log_group" {
+  description = "Log group de CloudWatch para ejecuciones del batch CIE-10."
+  value       = module.platform.log_group_names["cie10"]
+}
+
+output "cie10_openai_secret_arn" {
+  description = "ARN del secreto OPENAI_API_KEY usado por el batch CIE-10."
+  value       = aws_secretsmanager_secret.cie10_openai.arn
+}
+
 # ── TLS ─────────────────────────────────────────────────────────────────────
 
 output "acm_validation_records" {

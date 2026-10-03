@@ -29,6 +29,7 @@ variable "ci_subjects" {
     "repo:CONGENIAGT/CONGENIA-M1:ref:refs/heads/main",
     "repo:CONGENIAGT/CONGENIA-M1-SERVER:ref:refs/heads/main",
     "repo:CONGENIAGT/CONGENIA-M1-PDF-WORKER:ref:refs/heads/main",
+    "repo:CONGENIAGT/CONGENIA-CIE10:ref:refs/heads/main",
     "repo:CONGENIAGT/CONGENIA-ORCH:ref:refs/heads/master",
   ]
 }
