@@ -19,6 +19,7 @@ data "aws_ecr_repository" "this" {
     "congenia/api",
     "congenia/frontend",
     "congenia/pdf-worker",
+    "congenia/cie10",
     "congenia/keycloak",
     "congenia/migrate",
   ])
@@ -35,7 +36,7 @@ locals {
 
   # "migrate" no es un servicio permanente, pero necesita log group propio:
   # es la unica forma de leer lo que hizo la tarea despues de que termina.
-  service_names = ["frontend", "api", "keycloak", "rabbitmq", "pdf-worker", "migrate"]
+  service_names = ["frontend", "api", "keycloak", "rabbitmq", "pdf-worker", "migrate", "cie10"]
 
   ports = {
     frontend = 80
@@ -52,7 +53,7 @@ locals {
 
   # Tag de cada imagen, con el default como red de seguridad.
   image_tag = {
-    for servicio in ["api", "frontend", "pdf-worker", "keycloak", "migrate"] :
+    for servicio in ["api", "frontend", "pdf-worker", "cie10", "keycloak", "migrate"] :
     servicio => lookup(var.image_tags, servicio, var.image_tag)
   }
 }
@@ -217,6 +218,18 @@ resource "aws_secretsmanager_secret_version" "redis" {
   secret_string = random_password.redis.result
 }
 
+resource "aws_secretsmanager_secret" "cie10_openai" {
+  name                    = "${var.name_prefix}/${var.environment}/cie10-openai-api-key"
+  recovery_window_in_days = var.allow_destroy ? 0 : 30
+  tags                    = local.tags
+}
+
+resource "aws_secretsmanager_secret_version" "cie10_openai" {
+  count         = var.cie10_openai_api_key == null ? 0 : 1
+  secret_id     = aws_secretsmanager_secret.cie10_openai.id
+  secret_string = var.cie10_openai_api_key
+}
+
 module "network" {
   source = "../../modules/network"
 
@@ -274,6 +287,7 @@ module "platform" {
     aws_secretsmanager_secret.keycloak_sadc.arn,
     aws_secretsmanager_secret.keycloak_medico_initial.arn,
     aws_secretsmanager_secret.redis.arn,
+    aws_secretsmanager_secret.cie10_openai.arn,
   ]
 
   tags = local.tags

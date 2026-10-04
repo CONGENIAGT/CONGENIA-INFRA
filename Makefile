@@ -14,6 +14,7 @@ TF_ARGS  = $(VAR_FILE) $(TF_VARS)
 
 .PHONY: help init plan create apply open close smoke smoke-integration \
 	destroy nuke verify-teardown fmt validate up-aws migrate migrate-image \
+	cie10-batch \
 	cost-status stop db-access-prepare db-access-plan db-access-up \
 	db-access-status db-access-tunnel db-access-stop db-access-destroy db-access-verify test-db-access
 
@@ -31,6 +32,7 @@ help:
 	@echo "make smoke-integration - prueba OAuth y activacion (requiere SADC_CLIENT_SECRET)"
 	@echo "make migrate-image - construye y publica la imagen de migracion en ECR"
 	@echo "make migrate   - carga o verifica el esquema en la base"
+	@echo "make cie10-batch - ejecuta a demanda el batch CIE-10 mensual"
 	@echo "make destroy   - destruye el entorno de app; AWS exige CONFIRM_DESTROY=destroy-congenia-aws"
 	@echo "make nuke      - destruccion total, incluido envs/shared (cierre de proyecto)"
 	@echo "make verify-teardown - comprueba contra AWS que no quedaron recursos"
@@ -77,6 +79,9 @@ smoke-integration:
 # Carga del esquema en RDS ejecutando la task definition de migracion.
 migrate:
 	@./scripts/migrate.sh $(TFDIR)
+
+cie10-batch:
+	@./scripts/run-cie10-batch.sh $(TFDIR)
 
 # ORCH_DIR apunta al repositorio orquestador, donde vive el contexto de build
 # de la imagen de migracion. Vacio en IMAGE_TAG = lo deriva del commit del

@@ -36,6 +36,7 @@ REPOS=(
   congenia/api
   congenia/frontend
   congenia/pdf-worker
+  congenia/cie10
   congenia/keycloak
   congenia/migrate
 )

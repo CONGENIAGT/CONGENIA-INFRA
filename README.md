@@ -183,6 +183,12 @@ export SADC_CLIENT_SECRET="$(aws secretsmanager get-secret-value \
   --query SecretString --output text)"
 make smoke-integration ENV=aws
 unset SADC_CLIENT_SECRET
+
+# Batch CIE-10 a demanda: prueba el mismo job que correra al final de mes.
+# Antes de ejecutarlo hay que subir CIE10.csv y CIE10_Traductor.csv a
+# s3://$(terraform -chdir=envs/aws output -raw docs_bucket)/cie10/input/
+# y cargar OPENAI_API_KEY en el secreto cie10_openai_secret_arn.
+make cie10-batch ENV=aws
 ```
 
 El acceso web inicial usa medico.inicial y la clave temporal del secreto keycloak_medico_initial_secret_arn. Los usuarios posteriores reciben acceso mediante grupos, por ejemplo /instituciones/254/medicos o /instituciones/254/revisores; no se asignan roles ni tenants directamente al usuario. /superadministradores concede visibilidad global y administracion de catalogos.
@@ -194,6 +200,9 @@ Antes de tráfico real, completar un recorrido sin datos personales: cargar
 PNG/JPEG y PDF válidos, rechazar MIME/tamaños inválidos, enviar dos veces la
 misma ficha, confirmar un solo `ficha_id`, verificar el PDF generado y revisar
 que logs y nombres de objeto no contengan PHI ni capabilities.
+
+Para CIE-10, la ejecucion manual del batch solo prepara la cola: la revision,
+aceptacion, rechazo y correccion se hace despues en `/dashboard/cie10`.
 
 ## AWS Free Plan y control de consumo
 
@@ -237,7 +246,7 @@ make db-access-verify       # consulta AWS; errores no equivalen a ausencia
 ```
 
 Antes del primer uso sobre infraestructura existente, seguir la preparación
-única y la configuración SSL en [DEPLOY.md, sección 2.7](docs/DEPLOY.md#27-acceso-a-rds-desde-dbeaver).
+única y la configuración SSL en [DEPLOY.md, sección 2.8](docs/DEPLOY.md#28-acceso-a-rds-desde-dbeaver).
 `close` / `stop` también detienen este acceso; `destroy` y `nuke` lo eliminan
 primero. El cierre del túnel con Ctrl-C **no apaga la EC2**. La eliminación
 incluye volumen, reglas, IAM y documento SSM; conserva el estado remoto.

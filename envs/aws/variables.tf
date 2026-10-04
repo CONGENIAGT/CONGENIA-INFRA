@@ -106,6 +106,49 @@ variable "image_tags" {
   default     = {}
 }
 
+variable "cie10_catalog_s3_uri" {
+  description = "Snapshot del catalogo institucional CIE-10 que consume el batch mensual."
+  type        = string
+  default     = null
+}
+
+variable "cie10_translator_s3_uri" {
+  description = "Snapshot de diagnosticos del traductor que consume el batch mensual."
+  type        = string
+  default     = null
+}
+
+variable "cie10_review_export_s3_prefix" {
+  description = "Prefijo donde el batch exporta CSVs de decisiones revisadas."
+  type        = string
+  default     = null
+}
+
+variable "cie10_max_records" {
+  description = "Limite opcional de registros a procesar por corrida. null procesa todos los pendientes nuevos."
+  type        = number
+  default     = null
+}
+
+variable "cie10_openai_model" {
+  description = "Modelo usado por el batch CIE-10."
+  type        = string
+  default     = "gpt-4o-mini"
+}
+
+variable "cie10_monthly_schedule" {
+  description = "Expresion schedule() o cron() de EventBridge Scheduler para ejecutar el batch."
+  type        = string
+  default     = "cron(0 6 L * ? *)"
+}
+
+variable "cie10_openai_api_key" {
+  description = "Opcional: valor inicial para el secreto OPENAI_API_KEY del batch. Si es null, se crea el secret y se carga manualmente."
+  type        = string
+  sensitive   = true
+  default     = null
+}
+
 variable "allow_destroy" {
   description = <<-DESC
     Desactiva temporalmente las protecciones que impiden destruir RDS, el
