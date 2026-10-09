@@ -170,3 +170,8 @@ output "reporting_llm_api_key_secret_arn" {
   description = "Secreto donde se carga la API key del modelo para el agente de reportería."
   value       = aws_secretsmanager_secret.reporting_llm_api_key.arn
 }
+
+output "reporting_mcp_token_secret_arn" {
+  description = "Secreto donde se carga el bearer token interno del endpoint MCP de reportería."
+  value       = aws_secretsmanager_secret.reporting_mcp_token.arn
+}

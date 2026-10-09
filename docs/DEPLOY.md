@@ -447,6 +447,11 @@ aws secretsmanager put-secret-value \
   --region us-east-1 \
   --secret-id "$(terraform -chdir=envs/aws output -raw reporting_llm_api_key_secret_arn)" \
   --secret-string "$LLM_API_KEY"
+
+aws secretsmanager put-secret-value \
+  --region us-east-1 \
+  --secret-id "$(terraform -chdir=envs/aws output -raw reporting_mcp_token_secret_arn)" \
+  --secret-string "$REPORTING_MCP_TOKEN"
 ```
 
 Luego, desde `CONGENIA-REPORTING-PIPELINE`, ejecutar:

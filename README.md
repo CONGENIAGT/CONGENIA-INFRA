@@ -195,6 +195,9 @@ aws secretsmanager put-secret-value \
 aws secretsmanager put-secret-value \
   --secret-id "$(terraform -chdir=envs/aws output -raw reporting_llm_api_key_secret_arn)" \
   --secret-string "$LLM_API_KEY"
+aws secretsmanager put-secret-value \
+  --secret-id "$(terraform -chdir=envs/aws output -raw reporting_mcp_token_secret_arn)" \
+  --secret-string "$REPORTING_MCP_TOKEN"
 
 # Batch CIE-10 a demanda: prueba el mismo job que correra al final de mes.
 # Antes de ejecutarlo hay que subir CIE10.csv y CIE10_Traductor.csv a

@@ -172,6 +172,12 @@ resource "aws_secretsmanager_secret" "reporting_llm_api_key" {
   tags                    = local.tags
 }
 
+resource "aws_secretsmanager_secret" "reporting_mcp_token" {
+  name                    = "${var.name_prefix}/${var.environment}/reporting-mcp-token"
+  recovery_window_in_days = var.allow_destroy ? 0 : 30
+  tags                    = local.tags
+}
+
 resource "random_password" "keycloak_admin" {
   length  = 24
   special = false

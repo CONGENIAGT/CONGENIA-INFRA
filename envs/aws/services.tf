@@ -197,6 +197,7 @@ module "api" {
     REPORTING_DATABASE_APP_URL            = aws_secretsmanager_secret.reporting_database_app_url.arn
     REPORTING_DATABASE_AGENT_READONLY_URL = aws_secretsmanager_secret.reporting_database_agent_readonly_url.arn
     LLM_API_KEY                           = aws_secretsmanager_secret.reporting_llm_api_key.arn
+    REPORTING_MCP_TOKEN                   = aws_secretsmanager_secret.reporting_mcp_token.arn
   }
 
   subnet_ids             = module.network.app_subnet_ids
