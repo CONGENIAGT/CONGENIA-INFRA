@@ -424,7 +424,46 @@ distinto de cero. Despues de una corrida verde:
 El scheduler queda activo desde el deploy y repetira esta corrida
 automaticamente con `cron(0 6 L * ? *)` en zona horaria `America/Guatemala`.
 
-## 2.7 Publicar una version nueva
+## 2.7 Validar reportería y agente
+
+`CONGENIA-REPORTING-PIPELINE` no se despliega en ECS ni publica imagen. Es una
+herramienta operativa para preparar el dataset SIGSA desidentificado e importarlo
+a un PostgreSQL externo.
+
+Antes de abrir `/dashboard/reporteria`, cargar los secretos que consumirá la API:
+
+```bash
+aws secretsmanager put-secret-value \
+  --region us-east-1 \
+  --secret-id "$(terraform -chdir=envs/aws output -raw reporting_database_app_url_secret_arn)" \
+  --secret-string "$REPORTING_DATABASE_APP_URL"
+
+aws secretsmanager put-secret-value \
+  --region us-east-1 \
+  --secret-id "$(terraform -chdir=envs/aws output -raw reporting_database_agent_readonly_url_secret_arn)" \
+  --secret-string "$REPORTING_DATABASE_AGENT_READONLY_URL"
+
+aws secretsmanager put-secret-value \
+  --region us-east-1 \
+  --secret-id "$(terraform -chdir=envs/aws output -raw reporting_llm_api_key_secret_arn)" \
+  --secret-string "$LLM_API_KEY"
+```
+
+Luego, desde `CONGENIA-REPORTING-PIPELINE`, ejecutar:
+
+```bash
+pnpm anonymize:sigsa -- --input /ruta/segura/SIGSA3Migrado_Puro.csv \
+  --output output/sigsa_desidentified.csv --manifest output/manifest.json \
+  --dataset-version sigsa-YYYYMMDD
+pnpm validate:sigsa -- --input output/sigsa_desidentified.csv
+REPORTING_DATABASE_ADMIN_URL="$REPORTING_DATABASE_ADMIN_URL" \
+  pnpm import:sigsa -- --input output/sigsa_desidentified.csv --manifest output/manifest.json
+```
+
+El CSV original no se sube a AWS ni se versiona. Solo se importa el CSV
+desidentificado.
+
+## 2.8 Publicar una version nueva
 
 Ya no se construye nada a mano.
 

@@ -184,6 +184,18 @@ export SADC_CLIENT_SECRET="$(aws secretsmanager get-secret-value \
 make smoke-integration ENV=aws
 unset SADC_CLIENT_SECRET
 
+# Reporteria/agente: cargar secretos del PostgreSQL externo y del modelo.
+# El dataset se prepara con CONGENIA-REPORTING-PIPELINE; no hay task ECS.
+aws secretsmanager put-secret-value \
+  --secret-id "$(terraform -chdir=envs/aws output -raw reporting_database_app_url_secret_arn)" \
+  --secret-string "$REPORTING_DATABASE_APP_URL"
+aws secretsmanager put-secret-value \
+  --secret-id "$(terraform -chdir=envs/aws output -raw reporting_database_agent_readonly_url_secret_arn)" \
+  --secret-string "$REPORTING_DATABASE_AGENT_READONLY_URL"
+aws secretsmanager put-secret-value \
+  --secret-id "$(terraform -chdir=envs/aws output -raw reporting_llm_api_key_secret_arn)" \
+  --secret-string "$LLM_API_KEY"
+
 # Batch CIE-10 a demanda: prueba el mismo job que correra al final de mes.
 # Antes de ejecutarlo hay que subir CIE10.csv y CIE10_Traductor.csv a
 # s3://$(terraform -chdir=envs/aws output -raw docs_bucket)/cie10/input/
@@ -203,6 +215,12 @@ que logs y nombres de objeto no contengan PHI ni capabilities.
 
 Para CIE-10, la ejecucion manual del batch solo prepara la cola: la revision,
 aceptacion, rechazo y correccion se hace despues en `/dashboard/cie10`.
+
+Para reportería/agente, `CONGENIA-REPORTING-PIPELINE` no es un servicio de ECS.
+Es una herramienta operativa para desidentificar el snapshot SIGSA, validar que
+no queden identificadores directos e importar el CSV resultante a un PostgreSQL
+externo. La API solo consume las URLs de esa base y la `LLM_API_KEY` por Secrets
+Manager.
 
 ## AWS Free Plan y control de consumo
 

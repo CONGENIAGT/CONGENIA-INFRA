@@ -154,6 +154,24 @@ resource "aws_secretsmanager_secret_version" "app_encryption_key" {
   secret_string = random_id.app_encryption_key.hex
 }
 
+resource "aws_secretsmanager_secret" "reporting_database_app_url" {
+  name                    = "${var.name_prefix}/${var.environment}/reporting-database-app-url"
+  recovery_window_in_days = var.allow_destroy ? 0 : 30
+  tags                    = local.tags
+}
+
+resource "aws_secretsmanager_secret" "reporting_database_agent_readonly_url" {
+  name                    = "${var.name_prefix}/${var.environment}/reporting-database-agent-readonly-url"
+  recovery_window_in_days = var.allow_destroy ? 0 : 30
+  tags                    = local.tags
+}
+
+resource "aws_secretsmanager_secret" "reporting_llm_api_key" {
+  name                    = "${var.name_prefix}/${var.environment}/reporting-llm-api-key"
+  recovery_window_in_days = var.allow_destroy ? 0 : 30
+  tags                    = local.tags
+}
+
 resource "random_password" "keycloak_admin" {
   length  = 24
   special = false

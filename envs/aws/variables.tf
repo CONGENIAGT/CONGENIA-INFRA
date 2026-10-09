@@ -149,6 +149,36 @@ variable "cie10_openai_api_key" {
   default     = null
 }
 
+variable "llm_model" {
+  description = "Modelo usado por el agente de reportería Text-to-SQL."
+  type        = string
+  default     = "gpt-4o-mini"
+}
+
+variable "agent_prompt_version" {
+  description = "Version del prompt del agente de reportería."
+  type        = string
+  default     = "agent-reporting-v1"
+}
+
+variable "reporting_dataset_version" {
+  description = "Version del dataset desidentificado cargado en la base externa de reportería."
+  type        = string
+  default     = "unset"
+}
+
+variable "reporting_schema_version" {
+  description = "Version del schema autorizado de reportería/agente."
+  type        = string
+  default     = "reporting-v1"
+}
+
+variable "reporting_statement_timeout_ms" {
+  description = "Timeout de cada consulta readonly del agente de reportería."
+  type        = number
+  default     = 5000
+}
+
 variable "allow_destroy" {
   description = <<-DESC
     Desactiva temporalmente las protecciones que impiden destruir RDS, el
