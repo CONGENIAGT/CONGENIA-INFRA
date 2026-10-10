@@ -155,3 +155,23 @@ output "dns_managed" {
   description = "true cuando Terraform administra validacion y ALIAS en Route 53."
   value       = local.gestiona_dns
 }
+
+output "reporting_database_app_url_secret_arn" {
+  description = "Secreto donde se carga la URL app de PostgreSQL externo para reportería."
+  value       = aws_secretsmanager_secret.reporting_database_app_url.arn
+}
+
+output "reporting_database_agent_readonly_url_secret_arn" {
+  description = "Secreto donde se carga la URL readonly del agente de reportería."
+  value       = aws_secretsmanager_secret.reporting_database_agent_readonly_url.arn
+}
+
+output "reporting_llm_api_key_secret_arn" {
+  description = "Secreto donde se carga la API key del modelo para el agente de reportería."
+  value       = aws_secretsmanager_secret.reporting_llm_api_key.arn
+}
+
+output "reporting_mcp_token_secret_arn" {
+  description = "Secreto donde se carga el bearer token interno del endpoint MCP de reportería."
+  value       = aws_secretsmanager_secret.reporting_mcp_token.arn
+}

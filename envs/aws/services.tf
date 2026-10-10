@@ -181,13 +181,24 @@ module "api" {
 
     # El dashboard CIE-10 descarga el CSV revisado por URL firmada desde la API.
     CIE10_REVIEW_EXPORT_S3_PREFIX = local.cie10_review_export_s3_uri
+
+    LLM_MODEL                      = var.llm_model
+    LLM_REASONING_EFFORT           = var.llm_reasoning_effort
+    AGENT_PROMPT_VERSION           = var.agent_prompt_version
+    DATASET_VERSION                = var.reporting_dataset_version
+    REPORTING_SCHEMA_VERSION       = var.reporting_schema_version
+    REPORTING_STATEMENT_TIMEOUT_MS = tostring(var.reporting_statement_timeout_ms)
   })
 
   secrets = {
-    POSTGRES_PASSWORD  = aws_secretsmanager_secret.db.arn
-    RABBITMQ_PASSWORD  = aws_secretsmanager_secret.rabbitmq.arn
-    APP_ENCRYPTION_KEY = aws_secretsmanager_secret.app_encryption_key.arn
-    REDIS_PASSWORD     = aws_secretsmanager_secret.redis.arn
+    POSTGRES_PASSWORD                     = aws_secretsmanager_secret.db.arn
+    RABBITMQ_PASSWORD                     = aws_secretsmanager_secret.rabbitmq.arn
+    APP_ENCRYPTION_KEY                    = aws_secretsmanager_secret.app_encryption_key.arn
+    REDIS_PASSWORD                        = aws_secretsmanager_secret.redis.arn
+    REPORTING_DATABASE_APP_URL            = aws_secretsmanager_secret.reporting_database_app_url.arn
+    REPORTING_DATABASE_AGENT_READONLY_URL = aws_secretsmanager_secret.reporting_database_agent_readonly_url.arn
+    LLM_API_KEY                           = aws_secretsmanager_secret.reporting_llm_api_key.arn
+    REPORTING_MCP_TOKEN                   = aws_secretsmanager_secret.reporting_mcp_token.arn
   }
 
   subnet_ids             = module.network.app_subnet_ids
