@@ -133,7 +133,13 @@ variable "cie10_max_records" {
 variable "cie10_openai_model" {
   description = "Modelo usado por el batch CIE-10."
   type        = string
-  default     = "gpt-4o-mini"
+  default     = "gpt-6-luna"
+}
+
+variable "cie10_reasoning_effort" {
+  description = "Reasoning effort usado por el batch CIE-10."
+  type        = string
+  default     = "medium"
 }
 
 variable "cie10_monthly_schedule" {
@@ -152,7 +158,13 @@ variable "cie10_openai_api_key" {
 variable "llm_model" {
   description = "Modelo usado por el agente de reportería Text-to-SQL."
   type        = string
-  default     = "gpt-4o-mini"
+  default     = "gpt-6-luna"
+}
+
+variable "llm_reasoning_effort" {
+  description = "Reasoning effort usado por el agente de reportería."
+  type        = string
+  default     = "low"
 }
 
 variable "agent_prompt_version" {

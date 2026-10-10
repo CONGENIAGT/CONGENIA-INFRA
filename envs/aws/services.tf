@@ -183,6 +183,7 @@ module "api" {
     CIE10_REVIEW_EXPORT_S3_PREFIX = local.cie10_review_export_s3_uri
 
     LLM_MODEL                      = var.llm_model
+    LLM_REASONING_EFFORT           = var.llm_reasoning_effort
     AGENT_PROMPT_VERSION           = var.agent_prompt_version
     DATASET_VERSION                = var.reporting_dataset_version
     REPORTING_SCHEMA_VERSION       = var.reporting_schema_version
