@@ -116,6 +116,24 @@ resource "aws_secretsmanager_secret_version" "db" {
   secret_string = random_password.db.result
 }
 
+# Credencial independiente para la API, el worker y CIE-10. El administrador
+# permanece reservado a Keycloak y a las migraciones.
+resource "random_password" "db_app" {
+  length  = 32
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "db_app" {
+  name                    = "${var.name_prefix}/${var.environment}/postgres-app"
+  recovery_window_in_days = var.allow_destroy ? 0 : 30
+  tags                    = local.tags
+}
+
+resource "aws_secretsmanager_secret_version" "db_app" {
+  secret_id     = aws_secretsmanager_secret.db_app.id
+  secret_string = random_password.db_app.result
+}
+
 # ── Credenciales internas ───────────────────────────────────────────────────
 # Terraform genera todas estas credenciales; los operadores recuperan una solo
 # cuando un procedimiento (por ejemplo el smoke OAuth) lo exige.
@@ -305,6 +323,7 @@ module "platform" {
 
   secret_arns = [
     aws_secretsmanager_secret.db.arn,
+    aws_secretsmanager_secret.db_app.arn,
     aws_secretsmanager_secret.rabbitmq.arn,
     aws_secretsmanager_secret.app_encryption_key.arn,
     aws_secretsmanager_secret.keycloak_admin.arn,
@@ -312,6 +331,10 @@ module "platform" {
     aws_secretsmanager_secret.keycloak_medico_initial.arn,
     aws_secretsmanager_secret.redis.arn,
     aws_secretsmanager_secret.cie10_openai.arn,
+    aws_secretsmanager_secret.reporting_database_app_url.arn,
+    aws_secretsmanager_secret.reporting_database_agent_readonly_url.arn,
+    aws_secretsmanager_secret.reporting_llm_api_key.arn,
+    aws_secretsmanager_secret.reporting_mcp_token.arn,
   ]
 
   tags = local.tags
@@ -388,11 +411,12 @@ module "migrate" {
   name_prefix = "${var.name_prefix}-${var.environment}"
   image       = "${local.registry}/congenia/migrate:${local.image_tag["migrate"]}"
 
-  db_host                = module.data.db_address
-  db_port                = module.data.db_port
-  db_name                = module.data.db_name
-  db_username            = "congenia"
-  db_password_secret_arn = aws_secretsmanager_secret.db.arn
+  db_host                    = module.data.db_address
+  db_port                    = module.data.db_port
+  db_name                    = module.data.db_name
+  db_username                = "congenia"
+  db_password_secret_arn     = aws_secretsmanager_secret.db.arn
+  app_db_password_secret_arn = aws_secretsmanager_secret.db_app.arn
 
   execution_role_arn = module.platform.execution_role_arn
   log_group_name     = module.platform.log_group_names["migrate"]

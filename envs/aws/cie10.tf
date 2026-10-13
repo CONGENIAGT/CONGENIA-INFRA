@@ -39,12 +39,12 @@ resource "aws_ecs_task_definition" "cie10" {
       { name = "POSTGRES_HOST", value = module.data.db_address },
       { name = "POSTGRES_PORT", value = tostring(module.data.db_port) },
       { name = "POSTGRES_DB", value = module.data.db_name },
-      { name = "POSTGRES_USER", value = "congenia" },
+      { name = "POSTGRES_USER", value = "congenia_app" },
       { name = "PGSSLMODE", value = "no-verify" },
     ], local.cie10_optional_environment)
 
     secrets = [
-      { name = "POSTGRES_PASSWORD", valueFrom = aws_secretsmanager_secret.db.arn },
+      { name = "POSTGRES_PASSWORD", valueFrom = aws_secretsmanager_secret.db_app.arn },
       { name = "OPENAI_API_KEY", valueFrom = aws_secretsmanager_secret.cie10_openai.arn },
     ]
 
@@ -111,7 +111,9 @@ resource "aws_scheduler_schedule" "cie10_monthly" {
   description                  = "Monthly CONGENIA CIE-10 AI suggestion batch"
   schedule_expression          = var.cie10_monthly_schedule
   schedule_expression_timezone = "America/Guatemala"
-  state                        = "ENABLED"
+  state                        = var.enable_cie10_schedule ? "ENABLED" : "DISABLED"
+
+  depends_on = [aws_iam_role_policy.cie10_scheduler]
 
   flexible_time_window {
     mode = "OFF"

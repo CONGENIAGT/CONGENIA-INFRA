@@ -1,9 +1,10 @@
 # Generado por scripts/release-plan.sh — que imagen corre cada servicio.
 # Se aplica con: terraform apply -var-file=images.tfvars
 image_tags = {
-  "api"        = "1.0.0-9332cc4"
-  "frontend"   = "1.0.0-11cb01f"
-  "pdf-worker" = "1.0.0-921f485"
-  "keycloak"   = "26.6.1-b1757b3"
-  "migrate"    = "schema-5061b6c"
+  "api"        = "1.0.0-63a6843"
+  "frontend"   = "1.0.0-f8aba9e"
+  "pdf-worker" = "1.0.0-2c89a8e"
+  "keycloak"   = "26.6.1-eb28081"
+  "migrate"    = "schema-ceca77e"
+  "cie10"      = "1.0.0-5cedb4f"
 }

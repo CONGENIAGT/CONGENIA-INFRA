@@ -47,9 +47,11 @@ resource "aws_ecs_task_definition" "this" {
     # entorno quedaria en claro en `describe-task-definition` para cualquiera
     # con permiso de lectura sobre ECS. Exige que el execution role tenga
     # `secretsmanager:GetSecretValue` sobre este ARN (modules/platform).
-    secrets = [
+    secrets = concat([
       { name = "PGPASSWORD", valueFrom = var.db_password_secret_arn },
-    ]
+      ], var.app_db_password_secret_arn == null ? [] : [
+      { name = "APP_DB_PASSWORD", valueFrom = var.app_db_password_secret_arn },
+    ])
 
     logConfiguration = {
       logDriver = "awslogs"

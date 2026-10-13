@@ -16,7 +16,7 @@ on:
   workflow_call:
     inputs:
       service:
-        description: Clave en image_tags (api, frontend, pdf-worker, keycloak, migrate)
+        description: Clave en image_tags (api, frontend, pdf-worker, cie10, keycloak, migrate)
         required: true
         type: string
       tag:
@@ -47,27 +47,9 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: |
           python3 - <<'PY'
-          import os, re, pathlib, sys
-
-          servicio = os.environ["SERVICIO"]
-          tag      = os.environ["TAG"]
-          ruta     = pathlib.Path("envs/aws/images.tfvars")
-          texto    = ruta.read_text()
-
-          # Se toca exactamente una linea: la del servicio que publico. Los
-          # demas servicios avanzan a su propio ritmo y su tag no es asunto de
-          # este PR.
-          patron = re.compile(r'^(\s*"%s"\s*=\s*)"[^"]*"' % re.escape(servicio), re.M)
-          nuevo, n = patron.subn(lambda m: '%s"%s"' % (m.group(1), tag), texto)
-
-          if n == 0:
-              print(f"::error::'{servicio}' no existe en images.tfvars")
-              sys.exit(1)
-          if n > 1:
-              print(f"::error::'{servicio}' aparece {n} veces en images.tfvars")
-              sys.exit(1)
-
-          ruta.write_text(nuevo)
+          import os, runpy
+          actualizar = runpy.run_path("scripts/bump-image-tag.py")["actualizar"]
+          actualizar("envs/aws/images.tfvars", os.environ["SERVICIO"], os.environ["TAG"])
           PY
 
       - uses: hashicorp/setup-terraform@v3

@@ -150,10 +150,14 @@ AWS y se hace una sola vez.
 
 ## 1.6 Configurar GitHub
 
-En la organizacion `CONGENIAGT`, no repo por repo.
+En GitHub Free, configurar estas variables y secretos **en cada repositorio
+privado**, porque los valores de organizacion no estan disponibles para ellos.
+No hace falta hacer publicos los servicios; el workflow reutilizable puede
+seguir publicado en `CONGENIA-INFRA`.
 
-**Variables de organizacion** — *Settings -> Secrets and variables -> Actions
--> Variables*, con alcance en los cinco repositorios:
+**Variables de repositorio** — *Settings -> Secrets and variables -> Actions
+-> Variables*, en `CONGENIA-M1`, `CONGENIA-M1-SERVER`,
+`CONGENIA-M1-PDF-WORKER`, `CONGENIA-CIE10` y `CONGENIA-ORCH`:
 
 | Variable | Valor |
 |---|---|
@@ -172,7 +176,7 @@ access tokens -> Fine-grained*:
 - Permisos: `Contents: Read and write`, `Pull requests: Read and write`.
 - Expiracion: 90 dias.
 
-Registrarlo como secreto de organizacion con alcance en los cinco repos. Anotar
+Registrarlo como secreto de repositorio en los cinco repos. Anotar
 quien es el titular y cuando vence: al expirar, los builds siguen publicando en
 ECR —eso usa OIDC— pero dejan de abrir PRs, y el sintoma no apunta al token de
 forma obvia.
@@ -182,6 +186,11 @@ CONGENIA-INFRA y lo invocan los otros repos. En repositorios privados hay que
 habilitarlo: *CONGENIA-INFRA -> Settings -> Actions -> General -> Access ->
 Accessible from repositories in the organization*. Sin esto, el job `registrar`
 falla con un error que no menciona los permisos.
+
+Si `CONGENIA-INFRA` es publico, su workflow reutilizable ya puede invocarse
+desde los repositorios privados; los secretos permanecen en los callers y se
+pasan explicitamente. Renovar `INFRA_TOKEN` solo si vencio, fue revocado o
+perdio acceso. AWS usa OIDC y no necesita una access key permanente en GitHub.
 
 ## 1.7 Comprobar el OIDC y poblar ECR
 
@@ -421,8 +430,10 @@ distinto de cero. Despues de una corrida verde:
 5. Descargar el CSV desde el boton del historial; la URL la firma la API desde
    el prefijo `cie10/export/`.
 
-El scheduler queda activo desde el deploy y repetira esta corrida
-automaticamente con `cron(0 6 L * ? *)` en zona horaria `America/Guatemala`.
+El scheduler se crea deshabilitado. Despues de validar la corrida manual,
+versionar `enable_cie10_schedule = true` en `envs/aws/features.tfvars`, revisar
+`make plan ENV=aws` y aplicar conservando el estado deseado de los servicios.
+Repetira la corrida con `cron(0 6 L * ? *)` en `America/Guatemala`.
 
 ## 2.7 Validar reportería y agente
 
@@ -453,6 +464,13 @@ aws secretsmanager put-secret-value \
   --secret-id "$(terraform -chdir=envs/aws output -raw reporting_mcp_token_secret_arn)" \
   --secret-string "$REPORTING_MCP_TOKEN"
 ```
+
+Ejecutar `make reporting-ready ENV=aws` y validar que las dos URLs conectan a la
+base externa, que el agente usa un usuario readonly y que el dataset esta
+importado. Luego versionar `enable_reporting = true` en
+`envs/aws/features.tfvars` y aplicar con `make plan` / `make open`. Hasta entonces,
+la API no inyecta esos secretos y las consultas que requieren la base externa
+responden que reporteria no esta configurada.
 
 Luego, desde `CONGENIA-REPORTING-PIPELINE`, ejecutar:
 

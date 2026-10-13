@@ -148,6 +148,18 @@ variable "cie10_monthly_schedule" {
   default     = "cron(0 6 L * ? *)"
 }
 
+variable "enable_cie10_schedule" {
+  description = "Habilitar solo tras cargar los CSV, el secreto OpenAI y validar una ejecucion manual."
+  type        = bool
+  default     = false
+}
+
+variable "enable_reporting" {
+  description = "Inyectar secretos de reporteria solo cuando sus cuatro valores esten cargados."
+  type        = bool
+  default     = false
+}
+
 variable "cie10_openai_api_key" {
   description = "Opcional: valor inicial para el secreto OPENAI_API_KEY del batch. Si es null, se crea el secret y se carga manualmente."
   type        = string

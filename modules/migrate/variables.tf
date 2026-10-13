@@ -34,6 +34,12 @@ variable "db_password_secret_arn" {
   type        = string
 }
 
+variable "app_db_password_secret_arn" {
+  description = "Password que el entrypoint asigna al login congenia_app tras aplicar el esquema."
+  type        = string
+  default     = null
+}
+
 variable "execution_role_arn" {
   type = string
 }

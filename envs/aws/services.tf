@@ -13,7 +13,7 @@ locals {
     POSTGRES_HOST = module.data.db_address
     POSTGRES_PORT = tostring(module.data.db_port)
     POSTGRES_DB   = module.data.db_name
-    POSTGRES_USER = "congenia"
+    POSTGRES_USER = "congenia_app"
 
     # RDS exige TLS (rds.force_ssl=1) y el Pool de src/config/db.js no declara
     # `ssl`, asi que node-postgres lee esta variable. `no-verify` cifra sin
@@ -190,16 +190,17 @@ module "api" {
     REPORTING_STATEMENT_TIMEOUT_MS = tostring(var.reporting_statement_timeout_ms)
   })
 
-  secrets = {
-    POSTGRES_PASSWORD                     = aws_secretsmanager_secret.db.arn
-    RABBITMQ_PASSWORD                     = aws_secretsmanager_secret.rabbitmq.arn
-    APP_ENCRYPTION_KEY                    = aws_secretsmanager_secret.app_encryption_key.arn
-    REDIS_PASSWORD                        = aws_secretsmanager_secret.redis.arn
+  secrets = merge({
+    POSTGRES_PASSWORD  = aws_secretsmanager_secret.db_app.arn
+    RABBITMQ_PASSWORD  = aws_secretsmanager_secret.rabbitmq.arn
+    APP_ENCRYPTION_KEY = aws_secretsmanager_secret.app_encryption_key.arn
+    REDIS_PASSWORD     = aws_secretsmanager_secret.redis.arn
+    }, var.enable_reporting ? {
     REPORTING_DATABASE_APP_URL            = aws_secretsmanager_secret.reporting_database_app_url.arn
     REPORTING_DATABASE_AGENT_READONLY_URL = aws_secretsmanager_secret.reporting_database_agent_readonly_url.arn
     LLM_API_KEY                           = aws_secretsmanager_secret.reporting_llm_api_key.arn
     REPORTING_MCP_TOKEN                   = aws_secretsmanager_secret.reporting_mcp_token.arn
-  }
+  } : {})
 
   subnet_ids             = module.network.app_subnet_ids
   security_group_ids     = [module.network.app_sg_id]
@@ -240,7 +241,7 @@ module "pdf_worker" {
   })
 
   secrets = {
-    POSTGRES_PASSWORD = aws_secretsmanager_secret.db.arn
+    POSTGRES_PASSWORD = aws_secretsmanager_secret.db_app.arn
     RABBITMQ_PASSWORD = aws_secretsmanager_secret.rabbitmq.arn
   }
 

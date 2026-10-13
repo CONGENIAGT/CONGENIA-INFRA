@@ -81,6 +81,11 @@ output "db_secret_arn" {
   value       = aws_secretsmanager_secret.db.arn
 }
 
+output "db_app_secret_arn" {
+  description = "ARN de la credencial del rol congenia_app."
+  value       = aws_secretsmanager_secret.db_app.arn
+}
+
 # ── Carga del esquema ───────────────────────────────────────────────────────
 # Los consume scripts/migrate.sh (`make migrate`).
 
@@ -125,6 +130,11 @@ output "cie10_log_group" {
 output "cie10_openai_secret_arn" {
   description = "ARN del secreto OPENAI_API_KEY usado por el batch CIE-10."
   value       = aws_secretsmanager_secret.cie10_openai.arn
+}
+
+output "cie10_input_uris" {
+  description = "Snapshots S3 requeridos antes de ejecutar el batch."
+  value       = [local.cie10_catalog_s3_uri, local.cie10_translator_s3_uri]
 }
 
 # ── TLS ─────────────────────────────────────────────────────────────────────

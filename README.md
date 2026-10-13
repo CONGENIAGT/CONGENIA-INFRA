@@ -140,9 +140,17 @@ en [docs/DEPLOY.md](docs/DEPLOY.md), parte 1.
 make migrate ENV=aws
 ```
 
-La tarea de una sola ejecución aplica los SQL incluidos en la imagen de
-migración. Es idempotente para una base nueva; cambios futuros de esquema deben
-usar migraciones incrementales.
+La tarea aplica los SQL incluidos en la imagen de migración y registra cada
+archivo en `schema_migrations`. En una base existente omite los archivos ya
+aplicados y ejecuta los incrementales pendientes. Antes de actualizar una base
+con datos, tomar un snapshot y comprobar las precondiciones de las migraciones;
+`10_ficha_provisional.sql` rechaza historias con más de una ficha vigente por
+tenant. No usar `MIGRATE_FORCE` para actualizar producción.
+
+La API, PDF worker y CIE-10 usan `congenia_app` con un secreto independiente
+`congenia/prod/postgres-app`; la tarea de migración configura su login mediante
+`APP_DB_PASSWORD`. El usuario administrador se reserva para migraciones y
+Keycloak.
 
 ### 5. TLS y DNS
 
@@ -205,6 +213,15 @@ aws secretsmanager put-secret-value \
 # y cargar OPENAI_API_KEY en el secreto cie10_openai_secret_arn.
 make cie10-batch ENV=aws
 ```
+
+`envs/aws/features.tfvars` mantiene reportería y Scheduler deshabilitados hasta
+que sus dependencias estén listas. Terraform crea los secretos vacíos, y la API
+puede arrancar sin inyectar los de reportería. Después de cargar sus cuatro
+valores, ejecutar `make reporting-ready`, validar conectividad y dataset, y
+versionar `enable_reporting = true` en ese archivo. Aplicar con `make plan` y
+`make open`. Para CIE-10: cargar clave y CSV, ejecutar `make cie10-ready` y una
+prueba manual; después versionar `enable_cie10_schedule = true`. El calendario
+corre a las 06:00 del último día de cada mes, hora de Guatemala.
 
 El acceso web inicial usa medico.inicial y la clave temporal del secreto keycloak_medico_initial_secret_arn. Los usuarios posteriores reciben acceso mediante grupos, por ejemplo /instituciones/254/medicos o /instituciones/254/revisores; no se asignan roles ni tenants directamente al usuario. /superadministradores concede visibilidad global y administracion de catalogos.
 
@@ -315,7 +332,8 @@ autoriza su destrucción.
 - RabbitMQ corre en Fargate sin almacenamiento persistente; un reinicio puede
   perder trabajos. Antes de mayor carga debe migrarse a SQS/Amazon MQ o a un
   patrón outbox.
-- La carga SQL cubre instalaciones iniciales, no upgrades incrementales.
+- Las migraciones incrementales se registran por nombre de archivo: no editar
+  un SQL ya aplicado; agregar uno nuevo para cualquier cambio posterior.
 - Los smoke tests comprueban contenido y no solo códigos HTTP: con las reglas
   de path mal aplicadas el ALB devuelve 200 sirviendo el SPA en todas las
   rutas, y un smoke que mirara el código daría un falso verde.
