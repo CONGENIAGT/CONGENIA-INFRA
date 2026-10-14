@@ -5,6 +5,7 @@
 *.tfplan
 crash.log
 .env
+.env.tmp
 *.auto.tfvars
 *.auto.tfvars.json
 
