@@ -16,7 +16,9 @@ variable "github_org" {
 variable "ci_subjects" {
   description = <<-DESC
     Sujetos OIDC que pueden publicar imagenes, en formato
-    `repo:ORG/REPO:ref:refs/heads/RAMA`.
+    `repo:ORG/REPO:ref:refs/heads/RAMA`, o el formato inmutable
+    `repo:ORG@OWNER_ID/REPO@REPO_ID:ref:refs/heads/RAMA`.
+    Debe coincidir con el claim sub real emitido por cada repositorio.
 
     El default cubre las ramas por defecto de cada repositorio: los servicios
     usan `main` y el orquestador `master`. Durante un rollout se agregan las
@@ -29,7 +31,7 @@ variable "ci_subjects" {
     "repo:CONGENIAGT/CONGENIA-M1:ref:refs/heads/main",
     "repo:CONGENIAGT/CONGENIA-M1-SERVER:ref:refs/heads/main",
     "repo:CONGENIAGT/CONGENIA-M1-PDF-WORKER:ref:refs/heads/main",
-    "repo:CONGENIAGT/CONGENIA-CIE10:ref:refs/heads/main",
+    "repo:CONGENIAGT@271886543/CONGENIA-CIE10@1317646820:ref:refs/heads/main",
     "repo:CONGENIAGT/CONGENIA-ORCH:ref:refs/heads/master",
   ]
 }

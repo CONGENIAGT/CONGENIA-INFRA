@@ -5,6 +5,8 @@ TFDIR="${1:-envs/aws}"
 : "${SADC_CLIENT_SECRET:?Exporta SADC_CLIENT_SECRET desde Secrets Manager antes de ejecutar este smoke test}"
 
 BASE_URL="${PUBLIC_URL:-$(cd "$TFDIR" && terraform output -raw public_url)}"
+SMOKE_PATIENT_ID="${SMOKE_PATIENT_ID:-SMOKE-$(date -u +%Y%m%d%H%M%S)}"
+SMOKE_CONSULTATION_DATE="${SMOKE_CONSULTATION_DATE:-$(TZ=America/Guatemala date +%F)}"
 
 command -v jq >/dev/null || {
   echo "Falta jq, requerido para validar respuestas JSON." >&2
@@ -27,7 +29,7 @@ session=$(curl -fsS \
   -X POST "${BASE_URL}/api/v1/sessions/init" \
   -H "Authorization: Bearer ${token}" \
   -H 'Content-Type: application/json' \
-  --data '{"paciente":{"patientId":"SMOKE-001","nombre":"Paciente de prueba"},"consulta":{"fechaConsulta":"2026-08-31","diagnosticoTexto":"Prueba tecnica sin datos reales"},"medico":{"medicoId":"MED-SMOKE-001","nombre":"Medico de prueba","especialidad":"Pruebas"}}')
+  --data "$(jq -nc --arg patientId "$SMOKE_PATIENT_ID" --arg fecha "$SMOKE_CONSULTATION_DATE" '{paciente:{patientId:$patientId,nombre:"Paciente de prueba"},consulta:{fechaConsulta:$fecha,diagnosticoTexto:"Prueba tecnica sin datos reales"},medico:{medicoId:"MED-SMOKE-001",nombre:"Medico de prueba",especialidad:"Pruebas"}}')")
 echo "      OK"
 
 session_token=$(jq -er '.sessionToken' <<<"$session")
@@ -45,10 +47,10 @@ activation=$(curl -fsS \
   -H 'Cache-Control: no-store')
 echo "      OK"
 
-jq -e '
+jq -e --arg patientId "$SMOKE_PATIENT_ID" '
   .origenCreacion == "INTEGRACION" and
   (.fichaId | type == "string") and
-  (.paciente.externalId == "SMOKE-001")
+  (.paciente.externalId == $patientId)
 ' >/dev/null <<<"$activation"
 
 expected_ficha_id=$(jq -er '.fichaId' <<<"$activation")
@@ -61,6 +63,7 @@ registration=$(curl -fsS \
   --data '{
     "referralSourceId": 1,
     "birthMethodId": null,
+    "sexId": 1,
     "affectedRelatives": false,
     "affectedRelativesCategoryIds": [],
     "affectedUnderageRelatives": 0,
@@ -86,3 +89,5 @@ jq -e '.data.consentimientoId | type == "string" and length > 0' >/dev/null <<<"
 echo "      OK"
 
 echo "OK: OAuth -> sesion -> activacion -> persistencia -> PDF funciona sin exponer la capability."
+
+echo "Ficha de prueba: ${ficha_id}"

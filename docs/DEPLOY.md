@@ -204,7 +204,19 @@ aws ecr describe-images --repository-name congenia/pdf-worker \
 ```
 
 Si falla en `configure-aws-credentials` con `AccessDenied`, el sujeto OIDC no
-coincide con la rama: revisar `var.ci_subjects` en `envs/shared`.
+coincide con la identidad emitida: revisar `var.ci_subjects` en `envs/shared`.
+GitHub puede emitir un subject con IDs inmutables. Para CIE10 la condicion es:
+
+```text
+repo:CONGENIAGT@271886543/CONGENIA-CIE10@1317646820:ref:refs/heads/main
+```
+
+El paso de diagnostico del workflow muestra `role`, `subject` y `audience` sin
+exponer el token. Compara esos campos con la confianza del rol; conserva la rama
+exacta, sin ampliar a comodines. Despues de corregir `envs/shared`, aplica ese
+stack y vuelve a ejecutar el workflow. Este error no requiere renovar
+`INFRA_TOKEN`: ese secreto se usa despues, para abrir el PR del manifiesto.
+Consulta la [referencia OIDC de GitHub](https://docs.github.com/en/actions/reference/security/oidc).
 
 Repetir para todos los artefactos: `publish-image` en `CONGENIA-M1`,
 `CONGENIA-M1-SERVER`, `CONGENIA-M1-PDF-WORKER` y `CONGENIA-CIE10`,
