@@ -328,7 +328,12 @@ Un `503` entre `create` y `open` es normal: los servicios estan en cero.
 
 Idempotente. Verifica y repara los scopes OIDC estandar, el cliente web PKCE,
 los roles `medico`/`congenia-admin`, el mapper firmado `tenants` y el usuario
-inicial. El backend usa `tenants` desde el access token como autoridad para
+inicial. Requiere Python 3 (biblioteca estandar). Las peticiones administrativas
+comparten un cache temporal privado, renuevan antes de expirar y reintentan
+una vez si Keycloak rechaza el token con 401;
+el token no se imprime ni se pasa como argumento de proceso.
+
+El backend usa `tenants` desde el access token como autoridad para
 filtrar fichas y adendas; sin ese atributo el usuario no ve datos clinicos.
 
 ```bash

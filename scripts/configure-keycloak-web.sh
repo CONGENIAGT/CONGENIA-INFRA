@@ -4,8 +4,8 @@ set -euo pipefail
 : "${KEYCLOAK_BASE_URL:?Define KEYCLOAK_BASE_URL, por ejemplo https://cogenia.app}"
 : "${KEYCLOAK_ADMIN_PASSWORD:?Define KEYCLOAK_ADMIN_PASSWORD}"
 : "${KEYCLOAK_MEDICO_PASSWORD:?Define KEYCLOAK_MEDICO_PASSWORD para la clave temporal}"
+command -v python3 >/dev/null || { echo 'Falta Python 3 para configurar Keycloak.' >&2; exit 1; }
 
-admin_user="${KEYCLOAK_ADMIN_USERNAME:-admin}"
 medico_user="${KEYCLOAK_MEDICO_USERNAME:-medico.inicial}"
 medico_name="${KEYCLOAK_MEDICO_NAME:-Medico Inicial}"
 medico_specialty="${KEYCLOAK_MEDICO_SPECIALTY:-Genetica Clinica}"
@@ -15,22 +15,27 @@ sadc_tenant="${KEYCLOAK_SADC_TENANT:-254}"
 base_url="${KEYCLOAK_BASE_URL%/}"
 realm_url="${base_url}/admin/realms/congenia"
 
-token="$({
-  curl -fsS "${base_url}/realms/master/protocol/openid-connect/token" \
-    --data-urlencode grant_type=password \
-    --data-urlencode client_id=admin-cli \
-    --data-urlencode "username=${admin_user}" \
-    --data-urlencode "password=${KEYCLOAK_ADMIN_PASSWORD}"
-} | jq -er '.access_token')"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+token_cache_dir="$(mktemp -d)"
+chmod 700 "$token_cache_dir"
+trap 'rm -rf "$token_cache_dir"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+export KEYCLOAK_ADMIN_TOKEN_CACHE="${token_cache_dir}/token.json"
 
-auth=(-H "Authorization: Bearer ${token}" -H 'Content-Type: application/json')
+# Cache privado compartido por los subshells; se renueva antes de expirar.
+# El token nunca se imprime ni se pasa por argv y se elimina al terminar.
+kc_curl() {
+  python3 "${script_dir}/keycloak-request.py" "$@"
+}
+
 target_scopes_url="${realm_url}/client-scopes"
 master_scopes_url="${base_url}/admin/realms/master/client-scopes"
 
 scope_id() {
   local scopes_url="$1"
   local scope_name="$2"
-  curl -fsS "${auth[@]}" "$scopes_url" |
+  kc_curl -fsS "$scopes_url" |
     jq -er --arg name "$scope_name" '.[] | select(.name == $name) | .id' |
     head -n 1
 }
@@ -43,37 +48,40 @@ ensure_standard_scope() {
   local scope_payload
 
   source_id="$(scope_id "$master_scopes_url" "$scope_name")"
-  source_json="$(curl -fsS "${auth[@]}" "${master_scopes_url}/${source_id}")"
+  source_json="$(kc_curl -fsS "${master_scopes_url}/${source_id}")"
   target_id="$(scope_id "$target_scopes_url" "$scope_name" || true)"
   scope_payload="$(jq -a 'del(.id, .protocolMappers)' <<<"$source_json")"
 
   if [[ -z "$target_id" ]]; then
-    curl -fsS -o /dev/null -X POST "${auth[@]}" "$target_scopes_url" -d "$scope_payload"
+    kc_curl -fsS -o /dev/null -X POST "$target_scopes_url" -d "$scope_payload"
     target_id="$(scope_id "$target_scopes_url" "$scope_name")"
   else
-    curl -fsS -o /dev/null -X PUT "${auth[@]}" \
+    kc_curl -fsS -o /dev/null -X PUT \
       "${target_scopes_url}/${target_id}" -d "$scope_payload"
   fi
 
+  local target_mappers
+  target_mappers="$(kc_curl -fsS "${target_scopes_url}/${target_id}/protocol-mappers/models")"
   while IFS= read -r mapper; do
     local mapper_name
     local mapper_id
     local mapper_payload
 
     mapper_name="$(jq -er '.name' <<<"$mapper")"
-    mapper_id="$({
-      curl -fsS "${auth[@]}" "${target_scopes_url}/${target_id}/protocol-mappers/models"
-    } | jq -er --arg name "$mapper_name" '.[] | select(.name == $name) | .id' | head -n 1 || true)"
+    mapper_id="$(jq -r --arg name "$mapper_name" '[.[] | select(.name == $name) | .id][0] // empty' <<<"$target_mappers")"
 
     if [[ -z "$mapper_id" ]]; then
       mapper_payload="$(jq -a 'del(.id)' <<<"$mapper")"
-      curl -fsS -o /dev/null -X POST "${auth[@]}" \
+      kc_curl -fsS -o /dev/null -X POST \
         "${target_scopes_url}/${target_id}/protocol-mappers/models" -d "$mapper_payload"
     else
       mapper_payload="$(jq --arg id "$mapper_id" '.id = $id' <<<"$mapper")"
-      curl -fsS -o /dev/null -X PUT "${auth[@]}" \
-        "${target_scopes_url}/${target_id}/protocol-mappers/models/${mapper_id}" \
-        -d "$mapper_payload"
+      if ! jq -e --argjson expected "$mapper_payload" \
+        'any(.[]; . == $expected)' <<<"$target_mappers" >/dev/null; then
+        kc_curl -fsS -o /dev/null -X PUT \
+          "${target_scopes_url}/${target_id}/protocol-mappers/models/${mapper_id}" \
+          -d "$mapper_payload"
+      fi
     fi
   done < <(jq -c '.protocolMappers[]' <<<"$source_json")
 
@@ -81,7 +89,7 @@ ensure_standard_scope() {
   local actual_mappers
   expected_mappers="$(jq -c '[.protocolMappers[].name] | sort' <<<"$source_json")"
   actual_mappers="$({
-    curl -fsS "${auth[@]}" "${target_scopes_url}/${target_id}/protocol-mappers/models"
+    kc_curl -fsS "${target_scopes_url}/${target_id}/protocol-mappers/models"
   } | jq -c '[.[].name] | sort')"
 
   jq -e --argjson expected "$expected_mappers" --argjson actual "$actual_mappers" \
@@ -92,6 +100,7 @@ ensure_standard_scope() {
 }
 
 for standard_scope in basic profile email roles; do
+  echo "Verificando scope Keycloak: ${standard_scope}" >&2
   ensure_standard_scope "$standard_scope"
 done
 
@@ -99,10 +108,10 @@ ensure_role() {
   local role_name="$1"
   local description="$2"
 
-  if ! curl -fsS -o /dev/null "${auth[@]}" "${realm_url}/roles/${role_name}" 2>/dev/null; then
+  if ! kc_curl -fsS -o /dev/null "${realm_url}/roles/${role_name}" 2>/dev/null; then
     jq -nca --arg name "$role_name" --arg description "$description" \
       '{name: $name, description: $description}' |
-      curl -fsS -o /dev/null -X POST "${auth[@]}" "${realm_url}/roles" -d @-
+      kc_curl -fsS -o /dev/null -X POST "${realm_url}/roles" -d @-
   fi
 }
 
@@ -174,21 +183,21 @@ client_json="$(jq -nca --arg origin "$base_url" '{
   ]
 }')"
 
-client_uuid="$(curl -fsS "${auth[@]}" "${realm_url}/clients?clientId=congenia-web" | jq -er '.[0].id // empty' || true)"
+client_uuid="$(kc_curl -fsS "${realm_url}/clients?clientId=congenia-web" | jq -er '.[0].id // empty' || true)"
 if [[ -z "$client_uuid" ]]; then
-  curl -fsS -o /dev/null -X POST "${auth[@]}" "${realm_url}/clients" -d "$client_json"
-  client_uuid="$(curl -fsS "${auth[@]}" "${realm_url}/clients?clientId=congenia-web" | jq -er '.[0].id')"
+  kc_curl -fsS -o /dev/null -X POST "${realm_url}/clients" -d "$client_json"
+  client_uuid="$(kc_curl -fsS "${realm_url}/clients?clientId=congenia-web" | jq -er '.[0].id')"
 else
-  curl -fsS -o /dev/null -X PUT "${auth[@]}" "${realm_url}/clients/${client_uuid}" -d "$client_json"
+  kc_curl -fsS -o /dev/null -X PUT "${realm_url}/clients/${client_uuid}" -d "$client_json"
 fi
 
 for standard_scope in basic profile email roles; do
   standard_scope_id="$(scope_id "$target_scopes_url" "$standard_scope")"
-  curl -fsS -o /dev/null -X PUT "${auth[@]}" \
+  kc_curl -fsS -o /dev/null -X PUT \
     "${realm_url}/clients/${client_uuid}/default-client-scopes/${standard_scope_id}"
 done
 
-user_uuid="$(curl -fsS "${auth[@]}" "${realm_url}/users?exact=true&username=${medico_user}" | jq -er '.[0].id // empty' || true)"
+user_uuid="$(kc_curl -fsS "${realm_url}/users?exact=true&username=${medico_user}" | jq -er '.[0].id // empty' || true)"
 if [[ -z "$user_uuid" ]]; then
   user_json="$(jq -nca \
     --arg username "$medico_user" \
@@ -202,10 +211,10 @@ if [[ -z "$user_uuid" ]]; then
       attributes: {especialidad: [$specialty]},
       credentials: [{type: "password", value: $password, temporary: true}]
     }')"
-  curl -fsS -o /dev/null -X POST "${auth[@]}" "${realm_url}/users" -d "$user_json"
-  user_uuid="$(curl -fsS "${auth[@]}" "${realm_url}/users?exact=true&username=${medico_user}" | jq -er '.[0].id')"
+  kc_curl -fsS -o /dev/null -X POST "${realm_url}/users" -d "$user_json"
+  user_uuid="$(kc_curl -fsS "${realm_url}/users?exact=true&username=${medico_user}" | jq -er '.[0].id')"
 else
-  user_json="$(curl -fsS "${auth[@]}" "${realm_url}/users/${user_uuid}" |
+  user_json="$(kc_curl -fsS "${realm_url}/users/${user_uuid}" |
     jq -ca \
       --arg name "$medico_name" \
       --arg specialty "$medico_specialty" \
@@ -213,19 +222,20 @@ else
        | .enabled = true
        | .attributes = ((.attributes // {}) + {especialidad: [$specialty]})
        | del(.attributes.tenants)')"
-  curl -fsS -o /dev/null -X PUT "${auth[@]}" "${realm_url}/users/${user_uuid}" -d "$user_json"
+  kc_curl -fsS -o /dev/null -X PUT "${realm_url}/users/${user_uuid}" -d "$user_json"
 fi
 
 group_id_by_path() {
   local group_path="$1"
-  curl -fsS "${auth[@]}" "${realm_url}/group-by-path${group_path}" | jq -er '.id'
+  kc_curl -fsS "${realm_url}/group-by-path${group_path}" | jq -er '.id'
 }
 
 ensure_group() {
   local parent_id="$1"
   local group_name="$2"
   local group_path="$3"
-  local attributes_json="${4:-{}}"
+  local attributes_json="${4:-}"
+  [[ -n "$attributes_json" ]] || attributes_json='{}'
   local group_id
   local endpoint
 
@@ -238,12 +248,12 @@ ensure_group() {
     fi
     jq -nca --arg name "$group_name" --argjson attributes "$attributes_json" \
       '{name: $name, attributes: $attributes}' |
-      curl -fsS -o /dev/null -X POST "${auth[@]}" "$endpoint" -d @-
+      kc_curl -fsS -o /dev/null -X POST "$endpoint" -d @-
     group_id="$(group_id_by_path "$group_path")"
   elif [[ "$attributes_json" != "{}" ]]; then
-    group_json="$(curl -fsS "${auth[@]}" "${realm_url}/groups/${group_id}" |
+    group_json="$(kc_curl -fsS "${realm_url}/groups/${group_id}" |
       jq -ca --argjson attributes "$attributes_json" '.attributes = $attributes')"
-    curl -fsS -o /dev/null -X PUT "${auth[@]}" "${realm_url}/groups/${group_id}" -d "$group_json"
+    kc_curl -fsS -o /dev/null -X PUT "${realm_url}/groups/${group_id}" -d "$group_json"
   fi
   printf '%s' "$group_id"
 }
@@ -253,11 +263,11 @@ ensure_group_role() {
   local role_name="$2"
   local role_json
   local assigned
-  role_json="$(curl -fsS "${auth[@]}" "${realm_url}/roles/${role_name}")"
-  assigned="$(curl -fsS "${auth[@]}" "${realm_url}/groups/${group_id}/role-mappings/realm")"
+  role_json="$(kc_curl -fsS "${realm_url}/roles/${role_name}")"
+  assigned="$(kc_curl -fsS "${realm_url}/groups/${group_id}/role-mappings/realm")"
   if ! jq -e --arg name "$role_name" 'any(.name == $name)' <<<"$assigned" >/dev/null; then
     jq -nca --argjson role "$role_json" '[$role]' |
-      curl -fsS -o /dev/null -X POST "${auth[@]}" \
+      kc_curl -fsS -o /dev/null -X POST \
         "${realm_url}/groups/${group_id}/role-mappings/realm" -d @-
   fi
 }
@@ -266,10 +276,10 @@ remove_managed_roles() {
   local mapping_url="$1"
   local assigned
   local managed
-  assigned="$(curl -fsS "${auth[@]}" "$mapping_url")"
+  assigned="$(kc_curl -fsS "$mapping_url")"
   managed="$(jq -ca '[.[] | select(.name == "medico" or .name == "congenia-admin" or .name == "congenia-coordinador" or .name == "congenia-genetista" or .name == "congenia-superadmin" or .name == "admin" or .name == "administrador" or .name == "genetista")]' <<<"$assigned")"
   if [[ "$(jq -r 'length' <<<"$managed")" -gt 0 ]]; then
-    curl -fsS -o /dev/null -X DELETE "${auth[@]}" "$mapping_url" -d "$managed"
+    kc_curl -fsS -o /dev/null -X DELETE "$mapping_url" -d "$managed"
   fi
 }
 
@@ -292,18 +302,18 @@ done < <(jq -Rr 'split(",")[] | gsub("^\\s+|\\s+$"; "") | select(test("^[0-9]+$"
 
 while IFS= read -r tenant_id; do
   medico_group_id="$(group_id_by_path "/instituciones/${tenant_id}/medicos")"
-  curl -fsS -o /dev/null -X PUT "${auth[@]}" "${realm_url}/users/${user_uuid}/groups/${medico_group_id}"
+  kc_curl -fsS -o /dev/null -X PUT "${realm_url}/users/${user_uuid}/groups/${medico_group_id}"
 done < <(jq -Rr 'split(",")[] | gsub("^\\s+|\\s+$"; "") | select(test("^[0-9]+$"))' <<<"$medico_tenants")
 remove_managed_roles "${realm_url}/users/${user_uuid}/role-mappings/realm"
 
 superadmin_group_id="$(ensure_group "" "superadministradores" "/superadministradores")"
 ensure_group_role "$superadmin_group_id" "congenia-superadmin"
 ensure_group_role "$superadmin_group_id" "congenia-admin"
-superadmin_uuid="$(curl -fsS "${auth[@]}" "${realm_url}/users?exact=true&username=${superadmin_user}" | jq -er '.[0].id // empty' || true)"
+superadmin_uuid="$(kc_curl -fsS "${realm_url}/users?exact=true&username=${superadmin_user}" | jq -er '.[0].id // empty' || true)"
 if [[ -n "$superadmin_uuid" ]]; then
-  curl -fsS -o /dev/null -X PUT "${auth[@]}" "${realm_url}/users/${superadmin_uuid}/groups/${superadmin_group_id}"
-  superadmin_json="$(curl -fsS "${auth[@]}" "${realm_url}/users/${superadmin_uuid}" | jq -ca 'del(.attributes.tenants)')"
-  curl -fsS -o /dev/null -X PUT "${auth[@]}" "${realm_url}/users/${superadmin_uuid}" -d "$superadmin_json"
+  kc_curl -fsS -o /dev/null -X PUT "${realm_url}/users/${superadmin_uuid}/groups/${superadmin_group_id}"
+  superadmin_json="$(kc_curl -fsS "${realm_url}/users/${superadmin_uuid}" | jq -ca 'del(.attributes.tenants)')"
+  kc_curl -fsS -o /dev/null -X PUT "${realm_url}/users/${superadmin_uuid}" -d "$superadmin_json"
   remove_managed_roles "${realm_url}/users/${superadmin_uuid}/role-mappings/realm"
 fi
 
@@ -314,13 +324,13 @@ for legacy_path in "/SADC-Congenia" "/SADC-Congenia/Admin" "/SADC-Congenia/Medic
   fi
 done
 
-sadc_uuid="$(curl -fsS "${auth[@]}" "${realm_url}/clients?clientId=sadc" | jq -er '.[0].id // empty' || true)"
+sadc_uuid="$(kc_curl -fsS "${realm_url}/clients?clientId=sadc" | jq -er '.[0].id // empty' || true)"
 if [[ -z "$sadc_uuid" ]]; then
   echo 'FALLA: no existe el cliente OAuth sadc.' >&2
   exit 1
 fi
 sadc_mappers_url="${realm_url}/clients/${sadc_uuid}/protocol-mappers/models"
-sadc_mapper_id="$(curl -fsS "${auth[@]}" "$sadc_mappers_url" | jq -er '.[] | select(.name == "tenant-id") | .id' | head -n 1 || true)"
+sadc_mapper_id="$(kc_curl -fsS "$sadc_mappers_url" | jq -er '.[] | select(.name == "tenant-id") | .id' | head -n 1 || true)"
 sadc_mapper="$(jq -nca --arg tenant "$sadc_tenant" '{
   name: "tenant-id",
   protocol: "openid-connect",
@@ -336,13 +346,13 @@ sadc_mapper="$(jq -nca --arg tenant "$sadc_tenant" '{
   }
 }')"
 if [[ -z "$sadc_mapper_id" ]]; then
-  curl -fsS -o /dev/null -X POST "${auth[@]}" "$sadc_mappers_url" -d "$sadc_mapper"
+  kc_curl -fsS -o /dev/null -X POST "$sadc_mappers_url" -d "$sadc_mapper"
 else
   sadc_mapper="$(jq --arg id "$sadc_mapper_id" '.id = $id' <<<"$sadc_mapper")"
-  curl -fsS -o /dev/null -X PUT "${auth[@]}" "$sadc_mappers_url/${sadc_mapper_id}" -d "$sadc_mapper"
+  kc_curl -fsS -o /dev/null -X PUT "$sadc_mappers_url/${sadc_mapper_id}" -d "$sadc_mapper"
 fi
 
-client_defaults="$(curl -fsS "${auth[@]}" "${realm_url}/clients/${client_uuid}/default-client-scopes")"
+client_defaults="$(kc_curl -fsS "${realm_url}/clients/${client_uuid}/default-client-scopes")"
 for standard_scope in profile email roles; do
   jq -e --arg name "$standard_scope" 'any(.name == $name)' <<<"$client_defaults" >/dev/null || {
     echo "FALLA: congenia-web no tiene ${standard_scope} como default client scope." >&2
@@ -350,7 +360,7 @@ for standard_scope in profile email roles; do
   }
 done
 
-curl -fsS "${auth[@]}" "${realm_url}/clients/${client_uuid}" |
+kc_curl -fsS "${realm_url}/clients/${client_uuid}" |
   jq -e '
     .enabled == true and
     .publicClient == true and
@@ -362,7 +372,7 @@ curl -fsS "${auth[@]}" "${realm_url}/clients/${client_uuid}" |
     exit 1
   }
 
-medico_groups="$(curl -fsS "${auth[@]}" "${realm_url}/users/${user_uuid}/groups")"
+medico_groups="$(kc_curl -fsS "${realm_url}/users/${user_uuid}/groups")"
 while IFS= read -r tenant_id; do
   jq -e --arg path "/instituciones/${tenant_id}/medicos" 'any(.path == $path)' <<<"$medico_groups" >/dev/null || {
     echo "FALLA: ${medico_user} no pertenece al grupo medico del tenant ${tenant_id}." >&2
@@ -370,20 +380,20 @@ while IFS= read -r tenant_id; do
   }
 done < <(jq -Rr 'split(",")[] | gsub("^\\s+|\\s+$"; "") | select(test("^[0-9]+$"))' <<<"$medico_tenants")
 
-curl -fsS "${auth[@]}" "${realm_url}/users/${user_uuid}" |
+kc_curl -fsS "${realm_url}/users/${user_uuid}" |
   jq -e '(.attributes.tenants // []) | length == 0' >/dev/null || {
     echo "FALLA: ${medico_user} todavia tiene tenants asignados directamente." >&2
     exit 1
   }
 
-curl -fsS "${auth[@]}" "$sadc_mappers_url" |
+kc_curl -fsS "$sadc_mappers_url" |
   jq -e --arg tenant "$sadc_tenant" 'any(.[]; .name == "tenant-id" and .config["claim.value"] == $tenant)' >/dev/null || {
     echo 'FALLA: el cliente sadc no emite tenant_id.' >&2
     exit 1
   }
 
 
-authorization_probe="$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' -G \
+authorization_probe="$(command curl --connect-timeout 10 --max-time 30 -sS -o /dev/null -w '%{http_code} %{redirect_url}' -G \
   "${base_url}/realms/congenia/protocol/openid-connect/auth" \
   --data-urlencode client_id=congenia-web \
   --data-urlencode response_type=code \
