@@ -1,6 +1,6 @@
 # Configuracion no secreta; credenciales almacenadas en Secrets Manager.
 enable_reporting               = true
-enable_cie10_schedule          = false
+enable_cie10_schedule          = true
 llm_model                      = "gpt-6-luna"
 llm_reasoning_effort           = "low"
 agent_prompt_version           = "agent-reporting-v1"
