@@ -179,6 +179,18 @@ variable "llm_reasoning_effort" {
   default     = "low"
 }
 
+variable "reporting_conversation_ttl_seconds" {
+  description = "Tiempo de vida de una conversacion de reporteria, en segundos."
+  type        = number
+  default     = 1800
+}
+
+variable "reporting_conversation_max_turns" {
+  description = "Numero maximo de turnos por conversacion de reporteria."
+  type        = number
+  default     = 8
+}
+
 variable "agent_prompt_version" {
   description = "Version del prompt del agente de reportería."
   type        = string

@@ -182,12 +182,14 @@ module "api" {
     # El dashboard CIE-10 descarga el CSV revisado por URL firmada desde la API.
     CIE10_REVIEW_EXPORT_S3_PREFIX = local.cie10_review_export_s3_uri
 
-    LLM_MODEL                      = var.llm_model
-    LLM_REASONING_EFFORT           = var.llm_reasoning_effort
-    AGENT_PROMPT_VERSION           = var.agent_prompt_version
-    DATASET_VERSION                = var.reporting_dataset_version
-    REPORTING_SCHEMA_VERSION       = var.reporting_schema_version
-    REPORTING_STATEMENT_TIMEOUT_MS = tostring(var.reporting_statement_timeout_ms)
+    LLM_MODEL                          = var.llm_model
+    LLM_REASONING_EFFORT               = var.llm_reasoning_effort
+    REPORTING_CONVERSATION_TTL_SECONDS = tostring(var.reporting_conversation_ttl_seconds)
+    REPORTING_CONVERSATION_MAX_TURNS   = tostring(var.reporting_conversation_max_turns)
+    AGENT_PROMPT_VERSION               = var.agent_prompt_version
+    DATASET_VERSION                    = var.reporting_dataset_version
+    REPORTING_SCHEMA_VERSION           = var.reporting_schema_version
+    REPORTING_STATEMENT_TIMEOUT_MS     = tostring(var.reporting_statement_timeout_ms)
   })
 
   secrets = merge({
