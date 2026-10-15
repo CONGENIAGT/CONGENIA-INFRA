@@ -6,5 +6,5 @@ image_tags = {
   "pdf-worker" = "1.0.0-2c89a8e"
   "keycloak"   = "26.6.1-eb28081"
   "migrate"    = "schema-1ad4bc7"
-  "cie10"      = "1.0.0-212eda6"
+  "cie10"      = "1.0.0-0fe6ce8"
 }
