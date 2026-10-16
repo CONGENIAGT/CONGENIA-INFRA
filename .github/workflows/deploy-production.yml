@@ -1,0 +1,98 @@
+name: deploy-production
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Servicio a desplegar
+        required: true
+        type: choice
+        options: [api, frontend, pdf-worker, keycloak, cie10, migrate]
+      tag:
+        description: Tag exacto ya publicado en ECR
+        required: true
+        type: string
+      migrate_tag:
+        description: Opcional para API con SQL nuevo (schema-...)
+        type: string
+        default: ''
+      preview_only:
+        description: Solo revisar el plan, sin desplegar
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: congenia-production-release
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      AWS_REGION: us-east-1
+      AWS_PAGER: ''
+      TF_IN_AUTOMATION: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.15.8'
+          terraform_wrapper: false
+      - name: Validar codigo de infraestructura
+        run: |
+          terraform fmt -check -recursive
+          python3 -m unittest discover -s tests -q
+          for script in scripts/*.sh; do bash -n "$script"; done
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN || 'arn:aws:iam::940213460779:role/congenia-gha-deploy' }}
+          aws-region: us-east-1
+      - name: Plan, migracion opcional, despliegue y salud
+        env:
+          SERVICE: ${{ inputs.service }}
+          TAG: ${{ inputs.tag }}
+          MIGRATE_TAG: ${{ inputs.migrate_tag }}
+          PREVIEW_ONLY: ${{ inputs.preview_only }}
+        run: |
+          args=(--service "$SERVICE" --tag "$TAG" --migrate-tag "$MIGRATE_TAG")
+          if [[ "$PREVIEW_ONLY" != true ]]; then args+=(--apply); fi
+          python3 scripts/deploy-release.py "${args[@]}"
+      - name: Registrar release verificada sin PR
+        if: ${{ !inputs.preview_only }}
+        env:
+          SERVICE: ${{ inputs.service }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- envs/aws/images.tfvars; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add envs/aws/images.tfvars
+          git commit -m "chore(release): ${SERVICE} ${TAG} [skip ci]"
+          git pull --rebase origin master
+          git push origin HEAD:master
+      - name: Resumen
+        if: always()
+        env:
+          SERVICE: ${{ inputs.service }}
+          TAG: ${{ inputs.tag }}
+          MIGRATE_TAG: ${{ inputs.migrate_tag }}
+          PREVIEW_ONLY: ${{ inputs.preview_only }}
+          RESULT: ${{ job.status }}
+        run: |
+          {
+            echo "Resultado: ${RESULT}"
+            echo "Servicio: ${SERVICE}; tag: ${TAG}; migracion: ${MIGRATE_TAG}"
+            echo "Solo plan: ${PREVIEW_ONLY}"
+            echo "Produccion: https://cogenia.app"
+            echo "Los planes y el estado contienen secretos y no se publican como artifacts."
+          } >> "$GITHUB_STEP_SUMMARY"

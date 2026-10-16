@@ -56,6 +56,16 @@ output "region" {
   value = var.region
 }
 
+output "release_task_definitions" {
+  description = "Revisiones exactas que verifica el workflow de despliegue manual."
+  value = {
+    api        = module.api.task_definition_arn
+    frontend   = module.frontend.task_definition_arn
+    pdf-worker = module.pdf_worker.task_definition_arn
+    keycloak   = module.keycloak.task_definition_arn
+  }
+}
+
 output "public_url" {
   description = "Punto de entrada publico. Cambia a https cuando el certificado queda emitido."
   value       = local.public_url

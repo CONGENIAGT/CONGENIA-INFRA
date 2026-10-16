@@ -1,5 +1,7 @@
 .terraform/
 .terraform.lock.hcl
+!envs/aws/.terraform.lock.hcl
+!envs/shared/.terraform.lock.hcl
 *.tfstate
 *.tfstate.*
 *.tfplan

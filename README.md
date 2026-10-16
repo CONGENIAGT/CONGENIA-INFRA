@@ -9,8 +9,9 @@ stacks con ciclos de vida distintos:
   todo el gasto y se destruye en cada pausa larga.
 
 Las imágenes ya no se construyen a mano: cada repositorio de servicio publica
-la suya en ECR por GitHub Actions al mergear, y abre un PR aquí registrando el
-tag. Desplegar sigue siendo una decisión humana.
+la suya en ECR por GitHub Actions al mergear. El despliegue se inicia desde
+**Actions -> deploy-production -> Run workflow**, con servicio y tag. Usa OIDC
+y `GITHUB_TOKEN`, sin PAT ni PR de actualización de imágenes.
 
 ## Arquitectura
 
@@ -114,17 +115,16 @@ dependencias, pero no se ejecutan imágenes pendientes o incompletas.
 
 ### 3. Publicar imágenes inmutables
 
-Ya no se construye nada a mano: cada repositorio de servicio tiene un workflow
-de GitHub Actions que publica su imagen en ECR al mergear, y abre un PR aquí
-con el tag nuevo. `envs/aws/images.tfvars` sigue siendo el registro versionado
-de qué versión corre; lo que cambió es quién escribe la línea.
+Cada publicador ejecuta sus verificaciones y deja la imagen en ECR. Para una
+actualización de producción, abrir **Actions -> deploy-production -> Run
+workflow**, seleccionar `master`, `service` y `tag`. Para API con SQL nuevo,
+indicar también `migrate_tag`; se ejecuta antes de actualizar el servicio.
+`preview_only` permite revisar el plan sin desplegar.
 
-Con las imágenes ya publicadas y el manifiesto mergeado:
-
-```bash
-make plan ENV=aws
-make create ENV=aws
-```
+El workflow espera estabilidad y salud, y registra `images.tfvars` directamente
+con el `GITHUB_TOKEN` del repositorio. No utiliza `INFRA_TOKEN` ni abre PRs. El
+rol OIDC de despliegue es distinto del publicador y está limitado a las releases.
+Los detalles y pasos de migración están en [DEPLOY.md](docs/DEPLOY.md#28-publicar-y-desplegar-una-version-nueva).
 
 ECR es inmutable: nunca se usa `latest`, y el tag se deriva del commit. Para
 publicar sin pasar por GitHub —una cuenta nueva, una depuración— siguen

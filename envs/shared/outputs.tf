@@ -7,6 +7,11 @@ output "ci_role_arn" {
   value       = module.cicd.role_arn
 }
 
+output "deploy_role_arn" {
+  description = "Rol OIDC exclusivo del workflow manual deploy-production de INFRA."
+  value       = aws_iam_role.deploy.arn
+}
+
 output "ecr_registry" {
   description = "Variable de organizacion ECR_REGISTRY en GitHub."
   value       = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.region}.amazonaws.com"

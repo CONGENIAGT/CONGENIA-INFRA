@@ -86,9 +86,10 @@ resource "aws_iam_role" "cie10_scheduler" {
 
 data "aws_iam_policy_document" "cie10_scheduler" {
   statement {
-    effect    = "Allow"
-    actions   = ["ecs:RunTask"]
-    resources = [aws_ecs_task_definition.cie10.arn]
+    effect  = "Allow"
+    actions = ["ecs:RunTask"]
+    # Todas las revisiones de esta unica familia, sin editar IAM por release.
+    resources = ["arn:aws:ecs:${var.region}:${data.aws_caller_identity.current.account_id}:task-definition/${var.name_prefix}-${var.environment}-cie10:*"]
   }
 
   statement {

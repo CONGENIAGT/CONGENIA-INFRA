@@ -168,29 +168,25 @@ seguir publicado en `CONGENIA-INFRA`.
 Van como variables y no escritas en los workflows para que cambiar de cuenta
 AWS sea editar tres campos y no cinco archivos.
 
-**Secreto `INFRA_TOKEN`** — es el permiso con el que el pipeline abre el PR que
-registra la version publicada. *Settings -> Developer settings -> Personal
-access tokens -> Fine-grained*:
+**Despliegue manual en INFRA** — `deploy-production.yml` usa el
+`GITHUB_TOKEN` automatico de su propio repositorio (`contents: write`), y el rol
+OIDC separado `congenia-gha-deploy` para AWS. No hay PAT, secreto compartido entre
+repositorios ni GitHub App que configurar. Los publicadores solo escriben en ECR.
 
-- Repository access: **solo** `CONGENIAGT/CONGENIA-INFRA`.
-- Permisos: `Contents: Read and write`, `Pull requests: Read and write`.
-- Expiracion: 90 dias.
+El rol de despliegue se declara en `envs/shared/deploy.tf`; aplicar ese stack una
+vez y consultar `terraform -chdir=envs/shared output -raw deploy_role_arn`.
+Opcionalmente guardar ese ARN como variable `AWS_DEPLOY_ROLE_ARN` en INFRA; el
+workflow ya incluye el ARN de esta cuenta como default. El subject esta
+restringido a la identidad inmutable de `CONGENIA-INFRA` y la rama `master`.
 
-Registrarlo como secreto de repositorio en los cinco repos. Anotar
-quien es el titular y cuando vence: al expirar, los builds siguen publicando en
-ECR —eso usa OIDC— pero dejan de abrir PRs, y el sintoma no apunta al token de
-forma obvia.
+El workflow necesita poder escribir directamente en `master`. Si se agregan
+reglas de proteccion que lo impidan, habra que configurar un actor autorizado
+para ese bypass; no habilitar merges automaticos como sustituto del despliegue.
+Una GitHub App es una opcion si en el futuro se requiere acceso entre repos.
 
-**Acceso al workflow reutilizable** — `bump-image-tag.yml` vive en
-CONGENIA-INFRA y lo invocan los otros repos. En repositorios privados hay que
-habilitarlo: *CONGENIA-INFRA -> Settings -> Actions -> General -> Access ->
-Accessible from repositories in the organization*. Sin esto, el job `registrar`
-falla con un error que no menciona los permisos.
-
-Si `CONGENIA-INFRA` es publico, su workflow reutilizable ya puede invocarse
-desde los repositorios privados; los secretos permanecen en los callers y se
-pasan explicitamente. Renovar `INFRA_TOKEN` solo si vencio, fue revocado o
-perdio acceso. AWS usa OIDC y no necesita una access key permanente en GitHub.
+Tras verificar el nuevo flujo, eliminar los secretos `INFRA_TOKEN` de los cinco
+repositorios y revocar el PAT anterior en la cuenta de su titular. Ya no se
+consume en ningun workflow. AWS sigue usando OIDC, sin access keys permanentes.
 
 ## 1.7 Comprobar el OIDC y poblar ECR
 
@@ -214,16 +210,17 @@ repo:CONGENIAGT@271886543/CONGENIA-CIE10@1317646820:ref:refs/heads/main
 El paso de diagnostico del workflow muestra `role`, `subject` y `audience` sin
 exponer el token. Compara esos campos con la confianza del rol; conserva la rama
 exacta, sin ampliar a comodines. Despues de corregir `envs/shared`, aplica ese
-stack y vuelve a ejecutar el workflow. Este error no requiere renovar
-`INFRA_TOKEN`: ese secreto se usa despues, para abrir el PR del manifiesto.
+stack y vuelve a ejecutar el workflow. Los publicadores ya no usan
+`INFRA_TOKEN` ni acceden a INFRA.
 Consulta la [referencia OIDC de GitHub](https://docs.github.com/en/actions/reference/security/oidc).
 
 Repetir para todos los artefactos: `publish-image` en `CONGENIA-M1`,
 `CONGENIA-M1-SERVER`, `CONGENIA-M1-PDF-WORKER` y `CONGENIA-CIE10`,
 `publish-migrate` en `CONGENIA-M1-SERVER`, y `publish-keycloak` en
-`CONGENIA-ORCH`. Cada uno abre un PR aqui con su tag; mergearlos todos y
-comprobar que las claves de
-`envs/aws/images.tfvars` tengan un tag real.
+`CONGENIA-ORCH`. El resumen de cada ejecucion muestra el tag publicado.
+En un entorno ya levantado, elegir ese tag desde `deploy-production` (2.8).
+Para el primer arranque, registrar los tags en `envs/aws/images.tfvars` antes
+de crear los servicios.
 
 > `workflow_dispatch` solo aparece en la interfaz si el archivo del workflow
 > existe en la rama por defecto. En una rama de trabajo hay que disparar por
@@ -503,28 +500,59 @@ REPORTING_DATABASE_ADMIN_URL="$REPORTING_DATABASE_ADMIN_URL" \
 El CSV original no se sube a AWS ni se versiona. Solo se importa el CSV
 desidentificado.
 
-## 2.8 Publicar una version nueva
+## 2.8 Publicar y desplegar una version nueva
 
-Ya no se construye nada a mano.
+1. Publicar el cambio en `main` (o `master` en ORCH). Su workflow ejecuta las
+   verificaciones y publica la imagen inmutable en ECR. No abre PR en INFRA.
+2. Copiar el tag del resumen del workflow; tambien se puede listar con:
 
-1. Mergear en `main` (o `master`, en el orquestador) el cambio del servicio.
-2. Su workflow corre las pruebas, publica la imagen en ECR y abre un PR aqui.
-3. Revisar y mergear ese PR: eso registra que version deberia correr.
-4. Aplicar:
+```bash
+aws ecr describe-images --region us-east-1 --repository-name congenia/api \
+  --query 'sort_by(imageDetails,&imagePushedAt)[].imageTags' --output json
+```
+
+3. Abrir **CONGENIA-INFRA -> Actions -> deploy-production -> Run workflow**,
+   seleccionar la rama **master**, el `service` y el `tag` exacto.
+4. Si la API incluye SQL nuevo, rellenar tambien `migrate_tag` con su imagen
+   `schema-...`. El workflow comprueba el plan completo, registra primero esa
+   definicion, ejecuta las migraciones incrementales y exige exit code 0 antes
+   de actualizar la API. Si falla SQL, la API mantiene su revision anterior.
+   La base puede haber aplicado archivos anteriores de esa corrida; no se
+   revierten datos automaticamente. Tambien se puede elegir `service=migrate`
+   para ejecutar solo la migracion.
+5. `preview_only=true` permite revisar los cambios sin aplicarlos. Para desplegar,
+   dejarlo desmarcado. La ejecucion es manual; publicar una imagen no despliega.
+
+El runner valida que la imagen exista, conserva `enable_services=true`, rechaza
+cambios fuera del servicio solicitado y permite solamente cambios de imagen,
+revision ECS y revision del target CIE10. No aplica cambios de red, RDS, secretos,
+roles, escala ni calendario. La infraestructura estructural se actualiza por
+separado. El rol AWS tiene escrituras acotadas a ECS, el target CIE10 y el estado
+Terraform de la aplicacion; no tiene permisos para destruir RDS/S3 ni editar IAM.
+
+Despues espera la revision exacta de ECS y ejecuta el smoke HTTPS. Solo entonces
+registra `images.tfvars` directamente en `master` con `GITHUB_TOKEN`, sin PR.
+Si falla la salud, la ejecucion queda roja y el manifiesto no se confirma; AWS
+puede haber avanzado parcialmente. Consultar ECS antes de repetir. Para volver a
+una imagen anterior, ejecutar el mismo workflow con su tag publicado; esto no
+revierte el esquema PostgreSQL. Si hay un conflicto al guardar el manifiesto,
+resolverlo con las revisiones realmente desplegadas; no se fuerza el push.
+
+Las releases se serializan con un unico grupo de concurrencia; no se cancela
+una ejecucion activa por iniciar otra. No se publican planes ni tfstate como
+artifacts, porque contienen secretos. Para CIE10 se actualiza su definicion y
+calendario, sin procesar registros en ese momento; probarlo con
+`make cie10-batch ENV=aws` cuando corresponda.
+
+La via local sigue disponible:
 
 ```bash
 git pull
 export TF_VAR_enable_services=true
 make plan ENV=aws
 make open ENV=aws
+make smoke ENV=aws
 ```
-
-`enable_services=true` es lo que distingue una actualizacion en caliente del
-arranque en frio. Sin esa variable, `make plan` propondria apagar ECS.
-
-Para publicar sin pasar por GitHub siguen existiendo `scripts/release-plan.sh`
-en el orquestador y `make migrate-image ENV=aws`, que calculan exactamente los
-mismos tags.
 
 ## 2.8 Acceso a RDS desde DBeaver
 
@@ -668,7 +696,7 @@ Ejecutado sin la confirmacion, solo imprime que haria.
 Al terminar corre `scripts/verify-teardown.sh`, que le pregunta a AWS que
 sobrevivio en lugar de confiar en que Terraform termino en verde, y el
 checklist de lo que vive fuera de Terraform: el bucket del estado remoto, la
-delegacion en name.com, el `INFRA_TOKEN` y las variables de organizacion.
+delegacion en name.com y las variables de GitHub.
 
 ```bash
 make verify-teardown                        # auditar en cualquier momento
@@ -704,9 +732,11 @@ minutos. Si pasa de diez, comprobar la delegacion con
 **ECR rechaza un tag existente.** No repetir el push. Con tags inmutables, si
 el codigo cambio lo que falta es un commit nuevo: el tag se deriva del commit.
 
-**El pipeline publica pero el PR no aparece.** Casi siempre es `INFRA_TOKEN`
-expirado. El build sigue en verde porque publicar usa OIDC; lo que falla es el
-job `registrar`. Ver 1.6.
+**El pipeline publica pero produccion no cambia.** Es el comportamiento
+esperado: falta ejecutar `deploy-production` con el tag publicado. Si no aparece
+el boton, comprobar que el workflow existe en `master` y que Actions esta
+habilitado. Si falla al guardar el manifiesto, comprobar permisos de escritura
+y reglas de la rama; el resultado del despliegue se ve en ECS y en el resumen.
 
 **Keycloak devuelve `invalid_scope`.** Ejecutar
 `scripts/configure-keycloak-web.sh` y exigir su mensaje final. No basta con
