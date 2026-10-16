@@ -5,6 +5,13 @@ set -euo pipefail
 : "${KEYCLOAK_ADMIN_PASSWORD:?Define KEYCLOAK_ADMIN_PASSWORD}"
 : "${KEYCLOAK_MEDICO_PASSWORD:?Define KEYCLOAK_MEDICO_PASSWORD para la clave temporal}"
 
+# jq.exe usa CRLF por defecto en Windows. Los retornos de carro que sobreviven
+# dentro de sustituciones de comandos corrompen IDs usados luego en URLs.
+jq_executable="$(command -v jq)"
+jq() {
+  "$jq_executable" --binary "$@"
+}
+
 admin_user="${KEYCLOAK_ADMIN_USERNAME:-admin}"
 medico_user="${KEYCLOAK_MEDICO_USERNAME:-medico.inicial}"
 medico_name="${KEYCLOAK_MEDICO_NAME:-Medico Inicial}"
@@ -225,9 +232,13 @@ ensure_group() {
   local parent_id="$1"
   local group_name="$2"
   local group_path="$3"
-  local attributes_json="${4:-{}}"
+  local attributes_json="${4:-}"
   local group_id
   local endpoint
+
+  if [[ -z "$attributes_json" ]]; then
+    attributes_json='{}'
+  fi
 
   group_id="$(group_id_by_path "$group_path" || true)"
   if [[ -z "$group_id" ]]; then
@@ -342,6 +353,25 @@ else
   curl -fsS -o /dev/null -X PUT "${auth[@]}" "$sadc_mappers_url/${sadc_mapper_id}" -d "$sadc_mapper"
 fi
 
+# ── Bitacora de accesos ─────────────────────────────────────────────────────
+# Keycloak guarda en su propio esquema los inicios de sesion, sus fallos y los
+# cambios administrativos de roles, grupos y tenants. Retencion: 90 dias.
+events_json='{
+  "eventsEnabled": true,
+  "eventsExpiration": 7776000,
+  "eventsListeners": ["jboss-logging"],
+  "enabledEventTypes": ["LOGIN", "LOGIN_ERROR", "LOGOUT", "LOGOUT_ERROR", "CODE_TO_TOKEN_ERROR", "REFRESH_TOKEN_ERROR"],
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": true
+}'
+curl -fsS -o /dev/null -X PUT "${auth[@]}" "${realm_url}/events/config" -d "$events_json"
+
+curl -fsS "${auth[@]}" "${realm_url}/events/config" |
+  jq -e '.eventsEnabled == true and .adminEventsEnabled == true and (.enabledEventTypes | index("LOGIN_ERROR"))' >/dev/null || {
+    echo 'FALLA: el realm no registra eventos de acceso ni administrativos.' >&2
+    exit 1
+  }
+
 client_defaults="$(curl -fsS "${auth[@]}" "${realm_url}/clients/${client_uuid}/default-client-scopes")"
 for standard_scope in profile email roles; do
   jq -e --arg name "$standard_scope" 'any(.name == $name)' <<<"$client_defaults" >/dev/null || {
@@ -364,7 +394,8 @@ curl -fsS "${auth[@]}" "${realm_url}/clients/${client_uuid}" |
 
 medico_groups="$(curl -fsS "${auth[@]}" "${realm_url}/users/${user_uuid}/groups")"
 while IFS= read -r tenant_id; do
-  jq -e --arg path "/instituciones/${tenant_id}/medicos" 'any(.path == $path)' <<<"$medico_groups" >/dev/null || {
+  expected_group_id="$(group_id_by_path "/instituciones/${tenant_id}/medicos")"
+  jq -e --arg id "$expected_group_id" 'any(.[]; .id == $id)' <<<"$medico_groups" >/dev/null || {
     echo "FALLA: ${medico_user} no pertenece al grupo medico del tenant ${tenant_id}." >&2
     exit 1
   }
