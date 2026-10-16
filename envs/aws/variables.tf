@@ -134,12 +134,26 @@ variable "cie10_openai_model" {
   description = "Modelo usado por el batch CIE-10."
   type        = string
   default     = "gpt-6-luna"
+  validation {
+    condition     = var.cie10_openai_model == "gpt-6-luna"
+    error_message = "cie10_openai_model must remain gpt-6-luna."
+  }
 }
 
 variable "cie10_reasoning_effort" {
   description = "Reasoning effort usado por el batch CIE-10."
   type        = string
   default     = "medium"
+  validation {
+    condition     = var.cie10_reasoning_effort == "medium"
+    error_message = "cie10_reasoning_effort must remain medium."
+  }
+}
+
+variable "cie10_repair_attempts" {
+  description = "Intentos para completar exactamente cinco sugerencias CIE-10 validas."
+  type        = number
+  default     = 2
 }
 
 variable "cie10_monthly_schedule" {
@@ -171,22 +185,34 @@ variable "llm_model" {
   description = "Modelo usado por el agente de reportería Text-to-SQL."
   type        = string
   default     = "gpt-6-luna"
+  validation {
+    condition     = var.llm_model == "gpt-6-luna"
+    error_message = "llm_model must remain gpt-6-luna."
+  }
 }
 
 variable "llm_reasoning_effort" {
   description = "Reasoning effort usado por el agente de reportería."
   type        = string
   default     = "low"
+  validation {
+    condition     = var.llm_reasoning_effort == "low"
+    error_message = "llm_reasoning_effort must remain low."
+  }
 }
 
 variable "reporting_conversation_ttl_seconds" {
-  description = "Tiempo de vida de una conversacion de reporteria, en segundos."
+  description = "TTL deslizante de las conversaciones efimeras del agente."
   type        = number
   default     = 1800
+  validation {
+    condition     = var.reporting_conversation_ttl_seconds >= 60 && var.reporting_conversation_ttl_seconds <= 3600
+    error_message = "reporting_conversation_ttl_seconds must be between 60 and 3600."
+  }
 }
 
 variable "reporting_conversation_max_turns" {
-  description = "Numero maximo de turnos por conversacion de reporteria."
+  description = "Cantidad maxima de turnos visibles conservados en Redis."
   type        = number
   default     = 8
 }

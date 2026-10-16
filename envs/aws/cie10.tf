@@ -36,6 +36,7 @@ resource "aws_ecs_task_definition" "cie10" {
       { name = "CIE10_REVIEW_EXPORT_S3_PREFIX", value = local.cie10_review_export_s3_uri },
       { name = "CIE10_OPENAI_MODEL", value = var.cie10_openai_model },
       { name = "CIE10_REASONING_EFFORT", value = var.cie10_reasoning_effort },
+      { name = "CIE10_REPAIR_ATTEMPTS", value = tostring(var.cie10_repair_attempts) },
       { name = "POSTGRES_HOST", value = module.data.db_address },
       { name = "POSTGRES_PORT", value = tostring(module.data.db_port) },
       { name = "POSTGRES_DB", value = module.data.db_name },
