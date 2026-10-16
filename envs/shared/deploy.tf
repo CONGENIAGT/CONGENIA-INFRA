@@ -58,7 +58,7 @@ resource "aws_iam_role_policy" "deploy_read" {
       },
       {
         Effect   = "Allow"
-        Action   = ["secretsmanager:DescribeSecret", "secretsmanager:GetSecretValue"]
+        Action   = ["secretsmanager:DescribeSecret", "secretsmanager:GetSecretValue", "secretsmanager:GetResourcePolicy"]
         Resource = "arn:aws:secretsmanager:${local.account_arn}:secret:${var.name_prefix}/prod/*"
       },
       {
@@ -70,6 +70,11 @@ resource "aws_iam_role_policy" "deploy_read" {
         Effect   = "Allow"
         Action   = ["s3:GetBucket*", "s3:GetEncryptionConfiguration", "s3:GetLifecycleConfiguration", "s3:GetAccelerateConfiguration", "s3:ListBucket"]
         Resource = ["arn:aws:s3:::${local.deploy_prefix}-docs", "arn:aws:s3:::congenia-tfstate"]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetReplicationConfiguration"]
+        Resource = "arn:aws:s3:::${local.deploy_prefix}-docs"
       },
       {
         Effect   = "Allow"

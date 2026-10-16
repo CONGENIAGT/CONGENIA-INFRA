@@ -11,6 +11,36 @@ GUARD = MODULE["guard_plan"]
 MAIN = MODULE["main"]
 
 
+class FailureDiagnosticsTests(unittest.TestCase):
+    def test_denied_operations_are_reported_without_values_or_plan_payload(self):
+        secret = "test-private-value-that-must-not-appear"
+        stderr = (
+            'Error: reading Secret: operation error Secrets Manager: GetResourcePolicy, '
+            'api error AccessDeniedException: User is not authorized to perform: secretsmanager:GetResourcePolicy on resource: "private-arn"\n'
+            'Error: reading S3: operation error S3: GetBucketReplication, '
+            'User is not authorized to perform: s3:GetReplicationConfiguration\n'
+        )
+        result = subprocess_result = mock.Mock(returncode=1, stdout=secret, stderr=stderr)
+        with mock.patch("subprocess.run", return_value=subprocess_result):
+            with self.assertRaises(RuntimeError) as error:
+                MODULE["command"](["terraform", "-chdir=envs/aws", "plan"])
+        message = str(error.exception)
+        self.assertIn("terraform plan", message)
+        self.assertIn("secretsmanager:GetResourcePolicy", message)
+        self.assertIn("s3:GetReplicationConfiguration", message)
+        self.assertNotIn(secret, message)
+        self.assertNotIn("private-arn", message)
+
+    def test_unrecognized_errors_never_dump_response_or_credentials(self):
+        result = MODULE["failure_diagnostics"]('password = "private-value"', 'Error: arbitrary-provider-secret-private-value')
+        self.assertNotIn("private-value", result)
+        self.assertIn("No hay metadatos reconocidos", result)
+
+    def test_lock_failure_and_known_core_errors_are_actionable(self):
+        self.assertIn("bloqueo", MODULE["failure_diagnostics"]('', 'Error: Error acquiring the state lock'))
+        self.assertIn("Unsupported argument", MODULE["failure_diagnostics"]('', 'Error: Unsupported argument\nsecret = "private-value"'))
+
+
 class ManifestTests(unittest.TestCase):
     def test_six_literal_tags_including_cie10_and_reject_missing_or_duplicate(self):
         services = ["api", "frontend", "pdf-worker", "keycloak", "cie10", "migrate"]

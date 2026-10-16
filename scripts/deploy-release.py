@@ -104,9 +104,37 @@ def guard_plan(plan, service, migrate=False, runtime_config=False):
 def command(args, capture=True):
     result = subprocess.run(args, cwd=ROOT, text=True, capture_output=capture)
     if result.returncode:
-        # Terraform puede incluir valores sensibles. No subir planes ni su JSON.
-        raise RuntimeError(f"Fallo {args[0]} (codigo {result.returncode}); etapa detenida")
+        # Solo metadatos de errores: nunca imprimir stdout del plan, tfstate,
+        # respuestas de Secrets Manager ni argumentos con valores sensibles.
+        details = failure_diagnostics(result.stdout, result.stderr)
+        stage = next((arg for arg in args[1:] if arg in {"init", "plan", "apply", "show", "output"}), "comando")
+        raise RuntimeError(f"Fallo {args[0]} {stage} (codigo {result.returncode}); etapa detenida. {details}")
     return result.stdout if capture else ""
+
+
+def failure_diagnostics(stdout, stderr):
+    text = (stdout or "") + "\n" + (stderr or "")
+    text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    denied = sorted(set(re.findall(r"not authorized to perform:\s*([a-z0-9-]+:[A-Za-z0-9*]+)", text)))
+    operations = sorted(set(re.findall(r"operation error ([A-Za-z0-9 ]+):\s*([A-Za-z0-9]+)", text)))
+    details = []
+    if denied:
+        details.append("Permisos faltantes: " + ", ".join(denied))
+    if operations:
+        details.append("Operaciones AWS: " + ", ".join(service + ":" + operation for service, operation in operations))
+    if "Error acquiring the state lock" in text:
+        details.append("No se pudo adquirir el bloqueo del estado Terraform")
+    if not details:
+        # Los titulos del core identifican errores de configuracion sin incluir
+        # lineas de HCL, valores, ARN ni payloads devueltos por un provider.
+        core_errors = {
+            "Unsupported argument", "Unsupported attribute", "Reference to undeclared resource",
+            "Invalid function argument", "Invalid value for input variable", "Missing required argument",
+            "Inconsistent dependency lock file", "Invalid provider configuration", "Error loading state",
+        }
+        titles = sorted(core_errors.intersection(re.findall(r"(?m)^Error:\s*([^\n]+)", text)))
+        details.extend(titles)
+    return "; ".join(details) or "No hay metadatos reconocidos; revisar eventos de AWS o diagnosticos de Terraform de forma privada"
 
 
 def tf(*args):
