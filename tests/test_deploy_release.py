@@ -11,6 +11,19 @@ GUARD = MODULE["guard_plan"]
 MAIN = MODULE["main"]
 
 
+class ManifestTests(unittest.TestCase):
+    def test_six_literal_tags_including_cie10_and_reject_missing_or_duplicate(self):
+        services = ["api", "frontend", "pdf-worker", "keycloak", "cie10", "migrate"]
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory, "images.tfvars")
+            for names in [services, services[:-1], services + ["api"]]:
+                path.write_text('image_tags = {\n' + ''.join(f'  "{name}" = "v1-{name}"\n' for name in names) + '}\n')
+                if names == services:
+                    self.assertEqual(MODULE["manifest_images"](path)["cie10"], "v1-cie10")
+                else:
+                    with self.assertRaises(ValueError): MODULE["manifest_images"](path)
+
+
 def task(module="api"):
     before = {"family": "congenia-prod-" + module, "container_definitions": json.dumps([{"name": module, "image": "ecr/old", "environment": [{"name": "X", "value": "existing"}]}])}
     after = copy.deepcopy(before)
@@ -26,6 +39,22 @@ class ReleaseGuardTests(unittest.TestCase):
         plan = {"resource_changes": [task(), task("migrate")]}
         self.assertEqual(len(GUARD(plan, "api", True)), 2)
         with self.assertRaises(ValueError): GUARD(plan, "api")
+
+    def test_manifest_allows_multiple_images_but_never_data_changes(self):
+        plan = {"resource_changes": [task(), task("frontend")]}
+        self.assertEqual(len(GUARD(plan, "manifest")), 2)
+        extra = task()
+        extra["address"] = "module.data.aws_db_instance.postgres"
+        plan["resource_changes"].append(extra)
+        with self.assertRaises(ValueError): GUARD(plan, "manifest", runtime_config=True)
+
+    def test_runtime_variables_require_explicit_option_and_roles_remain_protected(self):
+        resource = task()
+        resource["change"]["after"]["container_definitions"] = resource["change"]["after"]["container_definitions"].replace("existing", "changed")
+        with self.assertRaises(ValueError): GUARD({"resource_changes": [resource]}, "api")
+        self.assertEqual(len(GUARD({"resource_changes": [resource]}, "api", runtime_config=True)), 1)
+        resource["change"]["after"]["task_role_arn"] = "other-role"
+        with self.assertRaises(ValueError): GUARD({"resource_changes": [resource]}, "api", runtime_config=True)
 
     def test_provider_empty_modes_equal_omitted_defaults_but_not_host_mode(self):
         resource = task()
@@ -92,7 +121,7 @@ class ReleaseOrderingTests(unittest.TestCase):
                 raise RuntimeError("Migracion rechazada por precondicion de datos")
             return ""
 
-        def plan(directory, service, migrate, apply, target=False):
+        def plan(directory, service, migrate, apply, target=False, runtime_config=False):
             plans.append((service, apply, target))
 
         with tempfile.TemporaryDirectory() as root, \

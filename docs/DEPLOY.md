@@ -520,12 +520,22 @@ aws ecr describe-images --region us-east-1 --repository-name congenia/api \
    La base puede haber aplicado archivos anteriores de esa corrida; no se
    revierten datos automaticamente. Tambien se puede elegir `service=migrate`
    para ejecutar solo la migracion.
-5. `preview_only=true` permite revisar los cambios sin aplicarlos. Para desplegar,
+5. `service=manifest` despliega juntos los seis tags ya registrados en
+   `images.tfvars`, ejecutando primero la migracion incluida; dejar `tag` y
+   `migrate_tag` vacios. Sirve para sincronizar cambios de varios componentes
+   que ya estan versionados. Cada tag se verifica contra ECR.
+6. `runtime_config=true` incluye tambien cambios de variables de ejecucion
+   (`environment`) de los servicios elegidos. Sigue rechazando cambios de roles,
+   secretos inyectados, puertos, volumenes, CPU/memoria y red. Si hay cambios
+   pendientes en otros servicios, elegir `manifest` o resolverlos por separado;
+   una release individual nunca los aplica de forma incidental.
+7. `preview_only=true` permite revisar los cambios sin aplicarlos. Para desplegar,
    dejarlo desmarcado. La ejecucion es manual; publicar una imagen no despliega.
 
 El runner valida que la imagen exista, conserva `enable_services=true`, rechaza
 cambios fuera del servicio solicitado y permite solamente cambios de imagen,
-revision ECS y revision del target CIE10. No aplica cambios de red, RDS, secretos,
+revision ECS y revision del target CIE10; las variables de ejecucion requieren
+`runtime_config=true`. No aplica cambios de red, RDS, secretos,
 roles, escala ni calendario. La infraestructura estructural se actualiza por
 separado. El rol AWS tiene escrituras acotadas a ECS, el target CIE10 y el estado
 Terraform de la aplicacion; no tiene permisos para destruir RDS/S3 ni editar IAM.
@@ -538,6 +548,8 @@ una imagen anterior, ejecutar el mismo workflow con su tag publicado; esto no
 revierte el esquema PostgreSQL. Si hay un conflicto al guardar el manifiesto,
 resolverlo con las revisiones realmente desplegadas; no se fuerza el push.
 
+La configuracion se toma del commit seleccionado al iniciar el workflow, y
+los providers estan fijados con los lockfiles versionados por entorno.
 Las releases se serializan con un unico grupo de concurrencia; no se cancela
 una ejecucion activa por iniciar otra. No se publican planes ni tfstate como
 artifacts, porque contienen secretos. Para CIE10 se actualiza su definicion y

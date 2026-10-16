@@ -119,7 +119,9 @@ Cada publicador ejecuta sus verificaciones y deja la imagen en ECR. Para una
 actualización de producción, abrir **Actions -> deploy-production -> Run
 workflow**, seleccionar `master`, `service` y `tag`. Para API con SQL nuevo,
 indicar también `migrate_tag`; se ejecuta antes de actualizar el servicio.
-`preview_only` permite revisar el plan sin desplegar.
+`preview_only` permite revisar el plan sin desplegar. `service=manifest` aplica
+juntos los seis tags versionados (sin rellenar `tag`), y `runtime_config` incluye
+explicitamente los cambios de variables de ejecucion de esos servicios.
 
 El workflow espera estabilidad y salud, y registra `images.tfvars` directamente
 con el `GITHUB_TOKEN` del repositorio. No utiliza `INFRA_TOKEN` ni abre PRs. El
