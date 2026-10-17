@@ -14,7 +14,7 @@ TF_ARGS  = $(VAR_FILE) $(TF_VARS)
 
 .PHONY: help init plan create apply open close smoke smoke-integration \
 	destroy nuke verify-teardown fmt validate up-aws migrate migrate-image \
-	cie10-batch cie10-ready reporting-ready \
+	cie10-batch cie10-index cie10-ready reporting-ready \
 	cost-status stop db-access-prepare db-access-plan db-access-up \
 	db-access-status db-access-tunnel db-access-stop db-access-destroy db-access-verify test-db-access
 
@@ -33,6 +33,7 @@ help:
 	@echo "make migrate-image - construye y publica la imagen de migracion en ECR"
 	@echo "make migrate   - carga o verifica el esquema en la base"
 	@echo "make cie10-batch - ejecuta a demanda el batch CIE-10 mensual"
+	@echo "make cie10-index - reconstruye y activa el indice RAG en S3 Vectors"
 	@echo "make reporting-ready / cie10-ready - verifica secretos e inputs sin revelar valores"
 	@echo "make destroy   - destruye el entorno de app; AWS exige CONFIRM_DESTROY=destroy-congenia-aws"
 	@echo "make nuke      - destruccion total, incluido envs/shared (cierre de proyecto)"
@@ -84,6 +85,10 @@ migrate:
 cie10-batch:
 	@./scripts/check-feature-ready.sh $(TFDIR) cie10
 	@./scripts/run-cie10-batch.sh $(TFDIR)
+
+cie10-index:
+	@./scripts/check-feature-ready.sh $(TFDIR) cie10
+	@CIE10_TASK_OUTPUT=cie10_indexer_task_definition CIE10_STARTED_BY=make-cie10-index CIE10_LOG_PREFIX=indexer ./scripts/run-cie10-batch.sh $(TFDIR)
 
 reporting-ready cie10-ready:
 	@./scripts/check-feature-ready.sh $(TFDIR) $(patsubst %-ready,%,$@)

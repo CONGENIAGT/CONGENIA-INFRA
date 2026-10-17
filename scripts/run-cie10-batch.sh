@@ -10,6 +10,9 @@
 set -euo pipefail
 
 TFDIR="${1:-envs/aws}"
+TASK_OUTPUT="${CIE10_TASK_OUTPUT:-cie10_task_definition}"
+STARTED_BY="${CIE10_STARTED_BY:-make-cie10-batch}"
+LOG_PREFIX="${CIE10_LOG_PREFIX:-ecs}"
 
 for binario in aws terraform; do
   command -v "$binario" >/dev/null || { echo "Falta $binario en el PATH" >&2; exit 1; }
@@ -19,7 +22,7 @@ salida() { (cd "$TFDIR" && terraform output -raw "$1"); }
 
 region=$(salida region)
 cluster=$(salida ecs_cluster)
-taskdef=$(salida cie10_task_definition)
+taskdef=$(salida "$TASK_OUTPUT")
 netcfg=$(salida migrate_network_config)
 grupo=$(salida cie10_log_group)
 
@@ -33,7 +36,7 @@ arn=$(aws ecs run-task \
   --task-definition "$taskdef" \
   --launch-type FARGATE \
   --network-configuration "$netcfg" \
-  --started-by "make-cie10-batch" \
+  --started-by "$STARTED_BY" \
   --query 'tasks[0].taskArn' --output text)
 
 if [[ -z "$arn" || "$arn" == "None" ]]; then
@@ -54,7 +57,7 @@ echo "--- salida de la tarea CIE-10 ---"
 aws logs get-log-events \
   --region "$region" \
   --log-group-name "$grupo" \
-  --log-stream-name "ecs/cie10/${arn##*/}" \
+  --log-stream-name "${LOG_PREFIX}/cie10/${arn##*/}" \
   --query 'events[].message' --output text 2>/dev/null \
   | tr '\t' '\n' || echo "(sin logs todavia; CloudWatch puede tardar unos segundos)"
 echo "---------------------------------"
@@ -64,4 +67,8 @@ if [[ "$codigo" != "0" ]]; then
   exit 1
 fi
 
-echo "Batch CIE-10 completado. Las sugerencias generadas se revisan en /dashboard/cie10."
+if [[ "$TASK_OUTPUT" == "cie10_indexer_task_definition" ]]; then
+  echo "Indice RAG CIE-10 construido y activado."
+else
+  echo "Batch CIE-10 completado. Las sugerencias generadas se revisan en /dashboard/cie10."
+fi

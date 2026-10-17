@@ -118,6 +118,19 @@ variable "cie10_translator_s3_uri" {
   default     = null
 }
 
+variable "cie10_reference_s3_uri" {
+  description = "Snapshot congelado de la referencia jerarquica verasativa/CIE-10."
+  type        = string
+  default     = null
+}
+
+variable "cie10_rag_version" {
+  description = "Identificador reproducible del corpus RAG; debe cambiar al reindexar catalogos o embeddings."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "cie10_review_export_s3_prefix" {
   description = "Prefijo donde el batch exporta CSVs de decisiones revisadas."
   type        = string
@@ -151,7 +164,7 @@ variable "cie10_reasoning_effort" {
 }
 
 variable "cie10_repair_attempts" {
-  description = "Intentos para completar exactamente cinco sugerencias CIE-10 validas."
+  description = "Intentos para reparar una respuesta sin codigos CIE-10 con formato valido."
   type        = number
   default     = 2
 }

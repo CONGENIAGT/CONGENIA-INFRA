@@ -415,7 +415,15 @@ DOCS_BUCKET="$(terraform -chdir=envs/aws output -raw docs_bucket)"
 
 aws s3 cp CIE10.csv "s3://${DOCS_BUCKET}/cie10/input/CIE10.csv"
 aws s3 cp CIE10_Traductor.csv "s3://${DOCS_BUCKET}/cie10/input/CIE10_Traductor.csv"
+aws s3 cp verasativa-cie-10.csv "s3://${DOCS_BUCKET}/cie10/input/verasativa-cie-10.csv"
 ```
+
+El archivo de referencia se obtiene del commit fijado
+`8e22d45e932badbc344f81e18e677a655ab3bc3a` de `verasativa/CIE-10`. Antes de
+usarlo en produccion, conservar el archivo original y su hash para poder
+reconstruir exactamente el corpus. El catalogo institucional sigue siendo la
+fuente local prioritaria; la referencia amplia el contexto y no autoriza una
+decision clinica por si sola.
 
 Luego cargar manualmente el secreto de OpenAI. El valor no se pasa por
 Terraform para evitar que viaje por tfvars o quede acoplado al flujo de plan:
@@ -427,7 +435,18 @@ aws secretsmanager put-secret-value \
   --secret-string "$OPENAI_API_KEY"
 ```
 
-Ejecutar el batch a demanda, antes de esperar al scheduler mensual:
+Aplicar primero la migracion del backend y construir una version activa del
+indice. El indexador combina ambos catalogos, genera embeddings y escribe la
+version en S3 Vectors:
+
+```bash
+make migrate ENV=aws
+make cie10-index ENV=aws
+```
+
+El batch se niega a procesar registros si no existe una version RAG activa.
+Esto evita mezclar una corrida con un indice incompleto. Tras indexar, ejecutar
+el batch a demanda antes de esperar al scheduler mensual:
 
 ```bash
 make cie10-batch ENV=aws
@@ -439,10 +458,17 @@ distinto de cero. Despues de una corrida verde:
 
 1. Entrar con un usuario `congenia-admin`.
 2. Abrir `/dashboard/cie10`.
-3. Aceptar una sugerencia y rechazar otra escribiendo codigo y justificacion.
-4. Confirmar que la cola descuenta lo ya decidido.
-5. Descargar el CSV desde el boton del historial; la URL la firma la API desde
+3. Revisar el codigo principal, el nivel de respaldo y los casos marcados para
+   atencion; corregir solo las excepciones necesarias.
+4. Aceptar la clausula versionada y confirmar el lote completo.
+5. Descargar el CSV mediante la URL firmada desde
    el prefijo `cie10/export/`.
+
+Cada actualizacion del catalogo o del modelo de embeddings requiere una nueva
+version `cie10_rag_version` en `envs/aws/features.tfvars` y una corrida de
+`make cie10-index ENV=aws` antes
+del siguiente batch. No se elimina la version anterior: queda archivada para
+trazabilidad de las sugerencias ya generadas.
 
 El scheduler se crea deshabilitado. Despues de validar la corrida manual,
 versionar `enable_cie10_schedule = true` en `envs/aws/features.tfvars`, revisar
