@@ -10,4 +10,5 @@ reporting_dataset_version          = "sigsa-2026-10"
 reporting_schema_version           = "reporting-v1"
 cie10_max_records                  = 20
 cie10_repair_attempts              = 2
+cie10_rag_version                  = "catalog-2026-10-17-v1"
 reporting_statement_timeout_ms     = 5000
