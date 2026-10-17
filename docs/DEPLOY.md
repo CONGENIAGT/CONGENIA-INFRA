@@ -504,7 +504,9 @@ desidentificado.
 
 1. Publicar el cambio en `main` (o `master` en ORCH). Su workflow ejecuta las
    verificaciones y publica la imagen inmutable en ECR. No abre PR en INFRA.
-2. Copiar el tag del resumen del workflow; tambien se puede listar con:
+2. Esperar a que la publicacion termine correctamente. El tag aparece en su
+   resumen. No es necesario copiarlo si se usa la nueva opcion `latest`.
+   Para consultar tags manualmente:
 
 ```bash
 aws ecr describe-images --region us-east-1 --repository-name congenia/api \
@@ -512,14 +514,35 @@ aws ecr describe-images --region us-east-1 --repository-name congenia/api \
 ```
 
 3. Abrir **CONGENIA-INFRA -> Actions -> deploy-production -> Run workflow**,
-   seleccionar la rama **master**, el `service` y el `tag` exacto.
+   seleccionar la rama **master** y elegir una modalidad:
+
+| Modalidad | service | components | latest | tag / resolved_tags |
+|---|---|---|---|---|
+| Ultima imagen de un componente | `frontend` (o api/pdf-worker/keycloak/cie10) | vacio | marcado | ambos vacios |
+| Ultimas imagenes de varios componentes | `selected` | `frontend,pdf-worker` (ejemplo) | marcado | ambos vacios |
+| Ultimas imagenes de los cinco componentes | `selected` | `all` | marcado | ambos vacios |
+| Version exacta de un componente / rollback | servicio individual | vacio | desmarcado | tag exacto en `tag` |
+| Versiones exactas de varios componentes | `selected` | lista de componentes | desmarcado | JSON en `resolved_tags` |
+| Subconjunto de versiones ya registradas | `selected` | lista de componentes o `all` | desmarcado | ambos vacios |
+| Manifiesto completo, incluida su migracion | `manifest` | vacio | desmarcado | ambos vacios |
+
+   Los nombres validos para `components` son `api`, `frontend`, `pdf-worker`,
+   `keycloak` y `cie10`, separados por comas; `all` selecciona esos cinco.
+   No admite `migrate`, RabbitMQ ni nombres repetidos. GitHub no tiene un
+   selector nativo multiple para este input: se escribe la lista.
 4. Si la API incluye SQL nuevo, rellenar tambien `migrate_tag` con su imagen
-   `schema-...`. El workflow comprueba el plan completo, registra primero esa
+   `schema-...` compatible con la API elegida. Tambien funciona con
+   `service=selected` si `components` incluye `api`. El workflow comprueba el plan completo, registra primero esa
    definicion, ejecuta las migraciones incrementales y exige exit code 0 antes
    de actualizar la API. Si falla SQL, la API mantiene su revision anterior.
    La base puede haber aplicado archivos anteriores de esa corrida; no se
    revierten datos automaticamente. Tambien se puede elegir `service=migrate`
    para ejecutar solo la migracion.
+   **`latest` y `components=all` nunca eligen ni ejecutan migraciones por su
+   cuenta.** Sin `migrate_tag`, una seleccion de API no ejecuta SQL. El runner
+   no detecta si esa API necesita un esquema nuevo: hay que revisar sus cambios
+   SQL. No relaciona tags por SHA ni asume que la ultima migracion es compatible.
+   `service=migrate` exige un `tag` exacto; no admite `latest`.
 5. `service=manifest` despliega juntos los seis tags ya registrados en
    `images.tfvars`, ejecutando primero la migracion incluida; dejar `tag` y
    `migrate_tag` vacios. Sirve para sincronizar cambios de varios componentes
@@ -532,8 +555,59 @@ aws ecr describe-images --region us-east-1 --repository-name congenia/api \
 7. `preview_only=true` permite revisar los cambios sin aplicarlos. Para desplegar,
    dejarlo desmarcado. La ejecucion es manual; publicar una imagen no despliega.
 
-El runner valida que la imagen exista, conserva `enable_services=true`, rechaza
-cambios fuera del servicio solicitado y permite solamente cambios de imagen,
+### Ejemplo: actualizar frontend y PDF sin conocer sus tags
+
+1. Abrir el workflow en `master`, elegir `service=selected` y escribir
+   `components=frontend,pdf-worker`.
+2. Marcar `latest` y `preview_only`. Dejar `tag`, `resolved_tags` y
+   `migrate_tag` vacios. Dejar `runtime_config` desmarcado si solo cambian imagenes.
+3. Ejecutar y esperar a que termine en verde. El resumen muestra las imagenes
+   de las definiciones activas de ECS (para CIE10, el target del scheduler),
+   las seleccionadas, cuales cambian y un JSON para `resolved_tags`.
+   Una imagen igual no fuerza un reinicio; Terraform tambien comprueba
+   revisiones y configuracion, por lo que un mismo tag puede requerir otro
+   cambio permitido si se marco `runtime_config` o se corrige una revision.
+4. Copiar el JSON completo del resumen. Por ejemplo, el formato es:
+
+```json
+{"frontend":"1.0.0-abcdef0","pdf-worker":"1.0.0-1234567"}
+```
+
+5. Iniciar **otra ejecucion nueva**, misma rama, servicio y componentes:
+   **desmarcar `latest`**, pegar el JSON en `resolved_tags` y **desmarcar
+   `preview_only`**. Mantener el mismo `runtime_config` y, si se incluyo API
+   con SQL, el mismo `migrate_tag` explicito. Los valores de ejemplo no son
+   tags reales: copiar los del resumen propio.
+6. Esperar estabilidad, smoke HTTPS y registro del manifiesto. El workflow
+   confirma directamente los tags desplegados en `images.tfvars`, sin PR.
+
+El JSON debe contener exactamente los componentes elegidos, con tags que
+existan en ECR. No incluye migraciones; estas siguen en `migrate_tag`.
+Tambien sirve para un componente individual, dejando `tag` vacio.
+`resolved_tags` no se combina con `latest`, `tag`, `manifest` ni `migrate`.
+
+### Que significa ultima imagen
+
+Se consultan todas las paginas de ECR y se elige por `imagePushedAt`, no por
+orden alfabetico, version numerica ni orden del SHA. Se consideran solo tags
+con el formato de los publicadores (`version-sha`, por ejemplo
+`1.0.0-abcdef0` o `26.6.1-abcdef0`); se ignoran imagenes sin tag y aliases
+como `latest`/`dev`. Si no existe una imagen valida o hay varias candidatas
+empatadas en la ultima fecha, la ejecucion falla antes del plan y pide una
+version exacta. La consulta usa la paginacion automatica de
+[ECR DescribeImages](https://docs.aws.amazon.com/cli/latest/reference/ecr/describe-images.html).
+
+La seleccion se fija una vez al iniciar cada ejecucion: no vuelve a buscar
+tags durante el apply. **Dos ejecuciones con `latest` pueden elegir versiones
+distintas** si se publica otra imagen entre ellas; usar `resolved_tags` para
+aplicar exactamente las imagenes revisadas. La configuracion Terraform sigue
+siendo la del commit de INFRA seleccionado al iniciar cada ejecucion; si ese
+codigo cambia entre preview y apply, revisar un preview nuevo.
+Ultima publicada no significa necesariamente ultimo commit de la rama: si
+el publicador aun no termina o falla, esa imagen no esta disponible.
+
+El runner resuelve y valida todas las imagenes antes de planear, conserva
+`enable_services=true`, rechaza cambios fuera de los componentes solicitados y permite solamente cambios de imagen,
 revision ECS y revision del target CIE10; las variables de ejecucion requieren
 `runtime_config=true`. No aplica cambios de red, RDS, secretos,
 roles, escala ni calendario. La infraestructura estructural se actualiza por

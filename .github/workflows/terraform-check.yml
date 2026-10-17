@@ -48,6 +48,9 @@ jobs:
         run: |
           for script in scripts/*.sh; do bash -n "$script"; done
 
+      - name: Pruebas de los scripts de despliegue
+        run: python3 -m unittest discover -s tests -q
+
       - name: Ciclo de vida db-access (simulado)
         run: make test-db-access
 

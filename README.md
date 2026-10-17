@@ -117,8 +117,15 @@ dependencias, pero no se ejecutan imágenes pendientes o incompletas.
 
 Cada publicador ejecuta sus verificaciones y deja la imagen en ECR. Para una
 actualización de producción, abrir **Actions -> deploy-production -> Run
-workflow**, seleccionar `master`, `service` y `tag`. Para API con SQL nuevo,
+workflow**, seleccionar `master` y `service`. Marcar `latest` para buscar la
+ultima imagen versionada publicada en ECR, sin conocer el tag. Para varios,
+elegir `service=selected` y `components=frontend,pdf-worker` (o `all` para los
+cinco componentes, sin migraciones). El resumen compara con ECS/scheduler y
+deja un JSON `resolved_tags`: usarlo con `latest` desmarcado para aplicar
+exactamente las versiones del preview. Un `tag` explicito sigue disponible
+para un servicio individual y para rollback. Para API con SQL nuevo,
 indicar también `migrate_tag`; se ejecuta antes de actualizar el servicio.
+La busqueda automatica no elige migraciones ni detecta cambios SQL necesarios.
 `preview_only` permite revisar el plan sin desplegar. `service=manifest` aplica
 juntos los seis tags versionados (sin rellenar `tag`), y `runtime_config` incluye
 explicitamente los cambios de variables de ejecucion de esos servicios.
@@ -128,7 +135,8 @@ con el `GITHUB_TOKEN` del repositorio. No utiliza `INFRA_TOKEN` ni abre PRs. El
 rol OIDC de despliegue es distinto del publicador y está limitado a las releases.
 Los detalles y pasos de migración están en [DEPLOY.md](docs/DEPLOY.md#28-publicar-y-desplegar-una-version-nueva).
 
-ECR es inmutable: nunca se usa `latest`, y el tag se deriva del commit. Para
+ECR es inmutable: la opcion `latest` resuelve un tag versionado derivado del
+commit; no utiliza un alias mutable llamado `latest`. Para
 publicar sin pasar por GitHub —una cuenta nueva, una depuración— siguen
 existiendo `./scripts/release-plan.sh` en el orquestador y
 `make migrate-image ENV=aws`, que calculan exactamente los mismos tags.

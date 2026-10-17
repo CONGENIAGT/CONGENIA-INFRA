@@ -1,6 +1,7 @@
-"""Desplegar una imagen publicada; limitar Terraform a la release solicitada."""
+"""Desplegar imagenes publicadas; limitar Terraform a los componentes elegidos."""
 import argparse
 import copy
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -10,7 +11,9 @@ import subprocess
 import tempfile
 
 MODULES = {"api": "api", "frontend": "frontend", "pdf-worker": "pdf_worker", "keycloak": "keycloak", "migrate": "migrate"}
-SERVICES = set(MODULES) | {"cie10", "manifest"}
+COMPONENTS = (set(MODULES) | {"cie10"}) - {"migrate"}
+SERVICES = COMPONENTS | {"migrate", "manifest", "selected"}
+RELEASE_TAG = re.compile(r"\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?-[0-9a-f]{7,40}")
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -21,14 +24,16 @@ def manifest_images(path):
         raise ValueError("No se encontro image_tags")
     pairs = re.findall(r'^\s*"([a-z0-9-]+)"\s*=\s*"([^"\n]+)"\s*$', block.group(1), re.M)
     images = dict(pairs)
-    if len(pairs) != len(images) or set(images) != SERVICES - {"manifest"}:
+    if len(pairs) != len(images) or set(images) != COMPONENTS | {"migrate"}:
         raise ValueError("El manifiesto debe contener exactamente los seis servicios")
     return images
 
 
 def allowed_resources(service, migrate=False):
+    if not isinstance(service, str):
+        return set().union(*(allowed_resources(item) for item in service), allowed_resources("migrate") if migrate else set())
     if service == "manifest":
-        return set().union(*(allowed_resources(item) for item in SERVICES - {"manifest"}))
+        return allowed_resources(COMPONENTS | {"migrate"})
     if service == "cie10":
         result = {"aws_ecs_task_definition.cie10", "aws_scheduler_schedule.cie10_monthly"}
     else:
@@ -39,6 +44,140 @@ def allowed_resources(service, migrate=False):
     if migrate:
         result.add("module.migrate.aws_ecs_task_definition.this")
     return result
+
+
+def selected_services(args):
+    if args.service == "selected":
+        names = [item.strip() for item in args.components.split(",")]
+        if names == ["all"]:
+            selected = set(COMPONENTS)
+        elif not names or len(names) != len(set(names)) or set(names) - COMPONENTS:
+            raise ValueError("components requiere nombres unicos: api,frontend,pdf-worker,keycloak,cie10; o all")
+        else:
+            selected = set(names)
+    else:
+        if args.components:
+            raise ValueError("components solo se usa con service=selected")
+        selected = COMPONENTS | {"migrate"} if args.service == "manifest" else {args.service}
+    if args.tag and (args.service in {"manifest", "selected"} or args.latest or args.resolved_tags):
+        raise ValueError("tag solo se usa para un servicio individual, sin latest ni resolved_tags")
+    if args.latest and (args.service in {"manifest", "migrate"} or args.resolved_tags):
+        raise ValueError("latest no se combina con manifest, migrate ni resolved_tags; las migraciones son explicitas")
+    if args.resolved_tags and args.service in {"manifest", "migrate"}:
+        raise ValueError("resolved_tags solo fija versiones de componentes; usar migrate_tag para SQL")
+    if args.migrate_tag and ("api" not in selected or args.service == "manifest"):
+        raise ValueError("migrate_tag requiere seleccionar api; manifest ya incluye su migracion versionada")
+    if args.service not in {"manifest", "selected"} and not (args.tag or args.latest or args.resolved_tags):
+        raise ValueError("Indicar tag exacto o marcar latest")
+    return selected
+
+
+def ecr_images(service, tag=None):
+    args = ["aws", "ecr", "describe-images", "--region", "us-east-1", "--repository-name", "congenia/" + service]
+    # La CLI pagina automaticamente. No truncar antes de ordenar por fecha.
+    args += ["--image-ids", "imageTag=" + tag] if tag else ["--filter", "tagStatus=TAGGED"]
+    return json.loads(command([*args, "--output", "json"]))["imageDetails"]
+
+
+def latest_image(service):
+    candidates = []
+    for image in ecr_images(service):
+        tags = sorted(tag for tag in image.get("imageTags", []) if RELEASE_TAG.fullmatch(tag))
+        if not tags:
+            continue
+        pushed = image["imagePushedAt"]
+        if isinstance(pushed, str):
+            pushed = datetime.fromisoformat(pushed.replace("Z", "+00:00"))
+            pushed = pushed.replace(tzinfo=pushed.tzinfo or timezone.utc).timestamp()
+        for tag in tags:
+            candidates.append((float(pushed), tag, image))
+    if not candidates:
+        raise ValueError(f"No hay imagenes con tag version-sha publicadas para {service}")
+    newest = max(item[0] for item in candidates)
+    winners = [item for item in candidates if item[0] == newest]
+    if len(winners) != 1:
+        raise ValueError(f"Ultima imagen ambigua para {service}; indicar un tag exacto")
+    return winners[0][1], winners[0][2]
+
+
+def resolved_images(args, selected):
+    if args.resolved_tags:
+        def unique_keys(pairs):
+            result = dict(pairs)
+            if len(result) != len(pairs):
+                raise ValueError("resolved_tags contiene claves duplicadas")
+            return result
+        images = json.loads(args.resolved_tags, object_pairs_hook=unique_keys)
+        if not isinstance(images, dict) or set(images) != selected:
+            raise ValueError("resolved_tags debe ser un objeto JSON con exactamente los componentes elegidos")
+    elif args.latest:
+        images = {}
+    elif args.service in {"manifest", "selected"}:
+        manifest = manifest_images(ROOT / "envs/aws/images.tfvars")
+        images = {name: manifest[name] for name in sorted(selected)}
+    else:
+        images = {args.service: args.tag}
+    if args.migrate_tag:
+        images["migrate"] = args.migrate_tag
+    for tag in images.values():
+        if not isinstance(tag, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}", tag):
+            raise ValueError("Tag invalido")
+    details = {}
+    for service in sorted(selected | set(images)):
+        if args.latest and service != "migrate":
+            images[service], details[service] = latest_image(service)
+        else:
+            found = ecr_images(service, images[service])
+            if len(found) != 1 or images[service] not in found[0].get("imageTags", []):
+                raise ValueError(f"La imagen debe estar publicada en ECR: {service}")
+            details[service] = found[0]
+        print(service, images[service], details[service]["imageDigest"], flush=True)
+    return images
+
+
+def current_images(services):
+    region, cluster = output("region"), output("ecs_cluster")
+    prefix = cluster.removesuffix("-cluster")
+    definitions = {}
+    permanent = services & (COMPONENTS - {"cie10"})
+    if permanent:
+        names = [prefix + "-" + service for service in sorted(permanent)]
+        result = json.loads(command(["aws", "ecs", "describe-services", "--region", region, "--cluster", cluster, "--services", *names, "--output", "json"]))
+        states = {state["serviceName"]: state for state in result["services"]}
+        if result.get("failures") or set(states) != set(names):
+            raise ValueError("No se pudieron consultar todos los servicios elegidos en ECS")
+        definitions.update({service: states[prefix + "-" + service]["taskDefinition"] for service in permanent})
+    if "cie10" in services:
+        schedule = json.loads(command(["aws", "scheduler", "get-schedule", "--region", region, "--name", prefix + "-cie10-monthly", "--group-name", "default", "--query", "Target.EcsParameters.TaskDefinitionArn", "--output", "json"]))
+        definitions["cie10"] = schedule
+    if "migrate" in services:
+        definitions["migrate"] = output("migrate_task_definition")
+    images = {}
+    for service, definition in sorted(definitions.items()):
+        containers = json.loads(command(["aws", "ecs", "describe-task-definition", "--region", region, "--task-definition", definition, "--query", "taskDefinition.containerDefinitions[].{name:name,image:image}", "--output", "json"]))
+        image = next(container["image"] for container in containers if container["name"] == service)
+        match = re.fullmatch(r"[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/congenia/" + re.escape(service) + r":([A-Za-z0-9_][A-Za-z0-9_.-]{0,127})", image)
+        images[service] = match[1] if match else "imagen por digest o externa"
+    return images
+
+
+def release_summary(images, current):
+    lines = ["### Imagenes resueltas para esta ejecucion", "", "| Componente | Actual en ECS / scheduler | Seleccionada | Imagen |", "|---|---|---|---|"]
+    for service, tag in sorted(images.items()):
+        action = "sin cambio" if current[service] == tag else "actualizar"
+        lines.append(f"| {service} | `{current[service]}` | `{tag}` | {action} |")
+    pinned = {name: tag for name, tag in sorted(images.items()) if name != "migrate"}
+    if pinned:
+        lines += ["", "Para repetir estas versiones, desmarcar latest y copiar en resolved_tags:", "", "```json", json.dumps(pinned, sort_keys=True), "```"]
+    if "migrate" in images:
+        lines += ["", f"Migracion explicita: `{images['migrate']}`. Se ejecutara antes de desplegar; la tabla muestra su definicion registrada, no confirma que el SQL ya se haya aplicado."]
+    else:
+        lines += ["", "Sin migracion: no se ejecutara SQL. Si la API requiere esquema nuevo, indicar migrate_tag compatible."]
+    lines += ["", "La tabla compara imagenes; el plan tambien comprueba revisiones y configuracion permitida.", ""]
+    print("\n".join(lines), flush=True)
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+            summary.write("\n".join(lines))
 
 
 def guard_plan(plan, service, migrate=False, runtime_config=False):
@@ -165,47 +304,39 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--service", choices=sorted(SERVICES), required=True)
     parser.add_argument("--tag", default="")
+    parser.add_argument("--components", default="")
+    parser.add_argument("--latest", action="store_true")
+    parser.add_argument("--resolved-tags", default="")
     parser.add_argument("--migrate-tag", default="")
     parser.add_argument("--runtime-config", action="store_true")
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
-    if args.migrate_tag and args.service != "api":
-        parser.error("migrate-tag solo acompana una release de api")
-    if args.service == "manifest":
-        if args.tag:
-            parser.error("manifest usa los tags versionados; dejar tag vacio")
-        images = manifest_images(ROOT / "envs/aws/images.tfvars")
-    else:
-        if not args.tag:
-            parser.error("Es obligatorio indicar tag")
-        images = {args.service: args.tag}
-    if args.migrate_tag:
-        images["migrate"] = args.migrate_tag
-    for service, tag in images.items():
-        if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}", tag):
-            parser.error("Tag invalido")
-        result = json.loads(command(["aws", "ecr", "describe-images", "--region", "us-east-1", "--repository-name", "congenia/" + service, "--image-ids", "imageTag=" + tag, "--output", "json"]))
-        if len(result.get("imageDetails", [])) != 1:
-            raise ValueError("La imagen debe estar publicada en ECR")
-        print(service, tag, result["imageDetails"][0]["imageDigest"], flush=True)
+    try:
+        selected = selected_services(args)
+        images = resolved_images(args, selected)
+    except ValueError as error:
+        parser.error(str(error))
+    # Mantener el contrato anterior de los modos individuales/manifest.
+    scope = selected if args.service == "selected" else args.service
     update = runpy.run_path(str(ROOT / "scripts/bump-image-tag.py"))["actualizar"]
     for service, tag in images.items():
         update(ROOT / "envs/aws/images.tfvars", service, tag)
     tf("fmt", "images.tfvars")
     tf("init", "-input=false")
-    migration = args.service in {"migrate", "manifest"} or bool(args.migrate_tag)
+    release_summary(images, current_images(set(images)))
+    migration = "migrate" in images
     with tempfile.TemporaryDirectory(prefix="congenia-release-") as directory:
         # Revisar TODO antes de aplicar SQL o cambiar definiciones.
-        plan_and_apply(directory, args.service, migration, False, runtime_config=args.runtime_config)
+        plan_and_apply(directory, scope, migration, False, runtime_config=args.runtime_config)
         if not args.apply:
             print("Vista previa terminada; sin aplicar cambios en AWS ni publicar commits")
             return
         if migration:
             plan_and_apply(directory, "migrate", False, True, target=True, runtime_config=args.runtime_config)
             command(["bash", "scripts/migrate.sh", "envs/aws"], capture=False)
-        plan_and_apply(directory, args.service, migration, True, runtime_config=args.runtime_config)
+        plan_and_apply(directory, scope, migration, True, runtime_config=args.runtime_config)
     permanent = {"api", "frontend", "pdf-worker", "keycloak"}
-    targets = sorted(permanent if args.service == "manifest" else {args.service} & permanent)
+    targets = sorted(selected & permanent)
     if targets:
         region, cluster = output("region"), output("ecs_cluster")
         prefix = cluster.removesuffix("-cluster")

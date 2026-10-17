@@ -7,10 +7,22 @@ on:
         description: Servicio a desplegar
         required: true
         type: choice
-        options: [api, frontend, pdf-worker, keycloak, cie10, migrate, manifest]
-      tag:
-        description: Tag exacto publicado en ECR (dejar vacio para manifest)
+        options: [api, frontend, pdf-worker, keycloak, cie10, migrate, manifest, selected]
+      components:
+        description: 'Solo para selected: api,frontend,pdf-worker,keycloak,cie10 (o all; sin migraciones)'
         type: string
+        default: ''
+      latest:
+        description: Buscar la ultima imagen versionada publicada de cada componente (sin migraciones)
+        type: boolean
+        default: false
+      tag:
+        description: Tag exacto para un servicio; vacio con latest, selected, manifest o resolved_tags
+        type: string
+      resolved_tags:
+        description: 'Opcional: JSON del resumen de preview para fijar versiones; desmarcar latest'
+        type: string
+        default: ''
       migrate_tag:
         description: Opcional para API con SQL nuevo (schema-...)
         type: string
@@ -63,11 +75,15 @@ jobs:
         env:
           SERVICE: ${{ inputs.service }}
           TAG: ${{ inputs.tag }}
+          COMPONENTS: ${{ inputs.components }}
+          LATEST: ${{ inputs.latest }}
+          RESOLVED_TAGS: ${{ inputs.resolved_tags }}
           MIGRATE_TAG: ${{ inputs.migrate_tag }}
           PREVIEW_ONLY: ${{ inputs.preview_only }}
           RUNTIME_CONFIG: ${{ inputs.runtime_config }}
         run: |
-          args=(--service "$SERVICE" --tag "$TAG" --migrate-tag "$MIGRATE_TAG")
+          args=(--service "$SERVICE" --tag "$TAG" --components "$COMPONENTS" --resolved-tags "$RESOLVED_TAGS" --migrate-tag "$MIGRATE_TAG")
+          if [[ "$LATEST" == true ]]; then args+=(--latest); fi
           if [[ "$PREVIEW_ONLY" != true ]]; then args+=(--apply); fi
           if [[ "$RUNTIME_CONFIG" == true ]]; then args+=(--runtime-config); fi
           python3 scripts/deploy-release.py "${args[@]}"
@@ -90,6 +106,8 @@ jobs:
         env:
           SERVICE: ${{ inputs.service }}
           TAG: ${{ inputs.tag }}
+          COMPONENTS: ${{ inputs.components }}
+          LATEST: ${{ inputs.latest }}
           MIGRATE_TAG: ${{ inputs.migrate_tag }}
           PREVIEW_ONLY: ${{ inputs.preview_only }}
           RUNTIME_CONFIG: ${{ inputs.runtime_config }}
@@ -98,6 +116,7 @@ jobs:
           {
             echo "Resultado: ${RESULT}"
             echo "Servicio: ${SERVICE}; tag: ${TAG}; migracion: ${MIGRATE_TAG}"
+            echo "Ultimas imagenes publicadas: ${LATEST}; componentes: ${COMPONENTS}"
             echo "Solo plan: ${PREVIEW_ONLY}"
             echo "Incluir variables de ejecucion: ${RUNTIME_CONFIG}"
             echo "Produccion: https://cogenia.app"
