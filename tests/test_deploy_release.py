@@ -334,7 +334,7 @@ class ReleaseOrderingTests(unittest.TestCase):
 
 
 class MultipleReleaseTests(unittest.TestCase):
-    def run_release(self, components, apply=False, migrate_tag="", fail_migration=False, fail_resolution=False):
+    def run_release(self, components, apply=False, migrate_tag="", fail_migration=False, fail_resolution=False, fail_health=False):
         events = []
         selected = set(components.split(",")) if components != "all" else MODULE["COMPONENTS"]
         def latest(service):
@@ -344,6 +344,7 @@ class MultipleReleaseTests(unittest.TestCase):
         def command(args, capture=True):
             events.append(("command", args))
             if args[0] == "bash" and fail_migration: raise RuntimeError("SQL fallo")
+            if args[0] == "make" and fail_health: raise RuntimeError("Smoke fallo")
             if args[1:3] == ["ecs", "describe-services"]:
                 return json.dumps({"services": [{"serviceName": "congenia-prod-" + service, "taskDefinition": service + ":1", "deployments": [{}], "runningCount": 1, "desiredCount": 1} for service in selected - {"cie10"}]})
             return ""
@@ -364,6 +365,8 @@ class MultipleReleaseTests(unittest.TestCase):
         with mock.patch.dict(MAIN.__globals__, **patches), mock.patch("runpy.run_path", return_value={"actualizar": update}), mock.patch("sys.argv", argv), redirect_stdout(io.StringIO()):
             if fail_migration:
                 with self.assertRaisesRegex(RuntimeError, "SQL fallo"): MAIN()
+            elif fail_health:
+                with self.assertRaisesRegex(RuntimeError, "Smoke fallo"): MAIN()
             elif fail_resolution:
                 with redirect_stdout(io.StringIO()), mock.patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit): MAIN()
             else: MAIN()
@@ -392,3 +395,17 @@ class MultipleReleaseTests(unittest.TestCase):
     def test_explicit_sql_failure_stops_all_selected_component_applies(self):
         events = self.run_release("api,frontend", apply=True, migrate_tag="schema-bbbbbbb", fail_migration=True)
         self.assertEqual([event for event in events if event[0] == "plan"], [("plan", {"api", "frontend"}, True, False, False), ("plan", "migrate", False, True, True)])
+
+    def test_verified_tags_file_is_written_only_after_successful_apply_and_health(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory, "verified.json")
+            with mock.patch.dict("os.environ", CONGENIA_VERIFIED_RELEASE_FILE=str(path)):
+                self.run_release("frontend,pdf-worker")
+                self.assertFalse(path.exists())
+                self.run_release("frontend,pdf-worker", apply=True, fail_health=True)
+                self.assertFalse(path.exists())
+                self.run_release("api,frontend", apply=True, migrate_tag="schema-bbbbbbb", fail_migration=True)
+                self.assertFalse(path.exists())
+                self.run_release("frontend,pdf-worker", apply=True)
+            self.assertEqual(json.loads(path.read_text()), {"frontend": "1.0.0-aaaaaaa", "pdf-worker": "1.0.0-aaaaaaa"})
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)

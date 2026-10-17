@@ -350,6 +350,10 @@ def main():
             if state["taskDefinition"] != expected[service] or len(state["deployments"]) != 1 or state["runningCount"] != state["desiredCount"] or state["desiredCount"] < 1:
                 raise RuntimeError(f"ECS no estabilizo la revision solicitada: {service}")
     command(["make", "smoke", "ENV=aws"], capture=False)
+    if os.environ.get("CONGENIA_VERIFIED_RELEASE_FILE"):
+        verified = Path(os.environ["CONGENIA_VERIFIED_RELEASE_FILE"])
+        verified.write_text(json.dumps(images, sort_keys=True) + "\n")
+        verified.chmod(0o600)
     print("Release verificada; el workflow puede registrar el manifiesto", flush=True)
 
 

@@ -616,11 +616,25 @@ Terraform de la aplicacion; no tiene permisos para destruir RDS/S3 ni editar IAM
 
 Despues espera la revision exacta de ECS y ejecuta el smoke HTTPS. Solo entonces
 registra `images.tfvars` directamente en `master` con `GITHUB_TOKEN`, sin PR.
+El registro usa `scripts/record-release.py` en un worktree temporal limpio:
+solo confirma los tags de un JSON que el deploy escribe despues de verificar
+ECS y el smoke. No contiene credenciales ni se publica como artifact.
+Los archivos modificados por Terraform u otras herramientas en el runner no se incluyen en el commit
+ni impiden el registro. Conserva cambios concurrentes de otros componentes;
+si otro commit cambio el mismo componente a un tercer tag, se detiene para
+revisar. El push nunca se fuerza.
 Si falla la salud, la ejecucion queda roja y el manifiesto no se confirma; AWS
 puede haber avanzado parcialmente. Consultar ECS antes de repetir. Para volver a
 una imagen anterior, ejecutar el mismo workflow con su tag publicado; esto no
 revierte el esquema PostgreSQL. Si hay un conflicto al guardar el manifiesto,
 resolverlo con las revisiones realmente desplegadas; no se fuerza el push.
+
+Si falla solamente **Registrar release verificada sin PR**, el despliegue y
+el smoke ya pueden haber terminado correctamente. Comprobar las imagenes y
+la estabilidad de ECS antes de repetir; no interpretar el job rojo como un
+rollback. Recuperar el registro con los tags realmente verificados y usar una
+ejecucion nueva sobre el workflow corregido si hace falta volver a comprobarlo.
+**Re-run jobs** de una ejecucion antigua conserva su commit y su codigo.
 
 La configuracion se toma del commit seleccionado al iniciar el workflow, y
 los providers estan fijados con los lockfiles versionados por entorno.
