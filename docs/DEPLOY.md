@@ -475,12 +475,24 @@ version `cie10_rag_version` en `envs/aws/features.tfvars` y una corrida de
 del siguiente batch. No se elimina la version anterior: queda archivada para
 trazabilidad de las sugerencias ya generadas.
 
-Produccion conserva `CIE10_EMBEDDING_PROVIDER=openai`, modelo
-`text-embedding-3-small`, 512 dimensiones y cosine. Titan V2 queda habilitado
-solo para evaluacion mediante override de task; usa una version RAG separada y
-no se promueve hasta igualar Recall@5 sin una regresion clinicamente relevante
-en Recall@1. La indexacion Titan queda en `READY`; promoverla exige además el
-override explícito `CIE10_ACTIVATE_RAG=true`.
+Produccion usa unicamente `CIE10_EMBEDDING_PROVIDER=openai`, modelo
+`text-embedding-3-small`, 512 dimensiones y cosine. Las tareas CIE10 no inyectan
+configuracion de Titan ni reciben permisos de Bedrock. El soporte opcional de
+Titan en el codigo queda fuera del entorno desplegado y de estas pruebas; no
+requiere solicitar cuotas ni ejecutar tareas adicionales para continuar con OpenAI.
+
+El batch solo lee los snapshots de `cie10/input/` y consulta vectores con sus
+metadatos. El indexador solo lee esos snapshots, escribe vectores y configura el
+modo del indice. Ninguna de las dos tareas escribe exportaciones S3; las rutas
+historicas de exportacion siguen perteneciendo a la API. Ambas tareas necesitan
+unicamente la clave OpenAI y la credencial PostgreSQL de `congenia_app` como secretos.
+
+Para evaluar OpenAI sin cambiar el puntero RAG activo, ejecutar el indexador con
+una version `eval-...` nueva y `CIE10_ACTIVATE_RAG=false`. La version terminada
+queda `READY`. El indexador tambien actualiza el catalogo SQL compartido y el modo
+del indice vectorial; usar los mismos snapshots institucionales de produccion.
+`make cie10-index` activa el indice OpenAI por defecto y se reserva para la
+preparacion productiva deliberada, despues de las pruebas.
 
 El scheduler sigue el valor versionado de `enable_cie10_schedule`. Antes de
 habilitarlo, validar la corrida manual, revisar `make plan ENV=aws` y aplicar.

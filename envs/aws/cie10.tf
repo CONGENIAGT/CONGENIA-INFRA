@@ -70,19 +70,12 @@ resource "aws_iam_role" "cie10_indexer" {
 
 data "aws_iam_policy_document" "cie10_batch" {
   statement {
-    actions = ["s3:GetObject", "s3:PutObject"]
-    resources = [
-      "arn:aws:s3:::${module.data.docs_bucket}/cie10/input/*",
-      "arn:aws:s3:::${module.data.docs_bucket}/cie10/export/*",
-    ]
+    actions   = ["s3:GetObject"]
+    resources = ["arn:aws:s3:::${module.data.docs_bucket}/cie10/input/*"]
   }
   statement {
     actions   = ["s3vectors:QueryVectors", "s3vectors:GetVectors"]
     resources = [aws_s3vectors_index.cie10.index_arn]
-  }
-  statement {
-    actions   = ["bedrock:InvokeModel"]
-    resources = ["arn:aws:bedrock:${var.region}::foundation-model/amazon.titan-embed-text-v2:0"]
   }
 }
 
@@ -100,15 +93,9 @@ data "aws_iam_policy_document" "cie10_indexer" {
   statement {
     actions = [
       "s3vectors:PutVectors",
-      "s3vectors:GetVectors",
-      "s3vectors:QueryVectors",
       "s3vectors:UpdateIndexMode",
     ]
     resources = [aws_s3vectors_index.cie10.index_arn]
-  }
-  statement {
-    actions   = ["bedrock:InvokeModel"]
-    resources = ["arn:aws:bedrock:${var.region}::foundation-model/amazon.titan-embed-text-v2:0"]
   }
 }
 
@@ -138,12 +125,10 @@ resource "aws_ecs_task_definition" "cie10" {
       { name = "CIE10_CATALOG_S3_URI", value = local.cie10_catalog_s3_uri },
       { name = "CIE10_TRANSLATOR_S3_URI", value = local.cie10_translator_s3_uri },
       { name = "CIE10_REFERENCE_CATALOG_S3_URI", value = local.cie10_reference_s3_uri },
-      { name = "CIE10_REVIEW_EXPORT_S3_PREFIX", value = local.cie10_review_export_s3_uri },
       { name = "CIE10_VECTOR_BUCKET_NAME", value = aws_s3vectors_vector_bucket.cie10.vector_bucket_name },
       { name = "CIE10_VECTOR_INDEX_NAME", value = aws_s3vectors_index.cie10.index_name },
       { name = "CIE10_EMBEDDING_PROVIDER", value = "openai" },
       { name = "CIE10_EMBEDDING_MODEL", value = "text-embedding-3-small" },
-      { name = "CIE10_TITAN_EMBEDDING_MODEL", value = "amazon.titan-embed-text-v2:0" },
       { name = "CIE10_EMBEDDING_DIMENSIONS", value = "512" },
       { name = "CIE10_COMMAND", value = "batch" },
       { name = "CIE10_OPENAI_MODEL", value = var.cie10_openai_model },
@@ -203,7 +188,6 @@ resource "aws_ecs_task_definition" "cie10_indexer" {
       { name = "CIE10_VECTOR_INDEX_NAME", value = aws_s3vectors_index.cie10.index_name },
       { name = "CIE10_EMBEDDING_PROVIDER", value = "openai" },
       { name = "CIE10_EMBEDDING_MODEL", value = "text-embedding-3-small" },
-      { name = "CIE10_TITAN_EMBEDDING_MODEL", value = "amazon.titan-embed-text-v2:0" },
       { name = "CIE10_EMBEDDING_DIMENSIONS", value = "512" },
       { name = "CIE10_OPENAI_MODEL", value = var.cie10_openai_model },
       { name = "CIE10_REASONING_EFFORT", value = var.cie10_reasoning_effort },
