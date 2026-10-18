@@ -357,6 +357,14 @@ export KEYCLOAK_SADC_TENANT="${KEYCLOAK_SADC_TENANT:-254}"
 unset KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_MEDICO_PASSWORD KEYCLOAK_MEDICO_TENANTS KEYCLOAK_SUPERADMIN_USERNAME KEYCLOAK_SADC_TENANT
 ```
 
+El script agrega al cliente `congenia-web` el mapper `groups` (rutas de grupo
+completas en el access token, p. ej. `/instituciones/254/medicos`). La API calcula
+los permisos por institución con ese claim y `config/access-policy.yaml`: un token
+sin `groups` no tiene permisos. **Este script debe correrse antes de desplegar una
+versión de la API que use permisos por institución**; si la API llega primero,
+ningún usuario podrá operar hasta que el mapper exista y los usuarios renueven su
+token (máximo la duración del access token).
+
 Exigir el mensaje final:
 
 ```text

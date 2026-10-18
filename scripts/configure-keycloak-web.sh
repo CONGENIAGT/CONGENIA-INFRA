@@ -121,7 +121,25 @@ ensure_role "congenia-coordinador" "Puede consultar y coordinar expedientes asig
 ensure_role "congenia-genetista" "Puede crear fichas y adendas como genetista"
 ensure_role "congenia-superadmin" "Puede consultar todos los tenants y administrar catalogos"
 
-client_json="$(jq -nca --arg origin "$base_url" '{
+# La API calcula los permisos por institucion a partir del claim `groups`
+# (rutas completas, p. ej. /instituciones/254/medicos). Solo va en el access
+# token: el frontend recibe los permisos calculados desde GET /api/v1/me.
+groups_mapper="$(jq -nca '{
+  name: "groups",
+  protocol: "openid-connect",
+  protocolMapper: "oidc-group-membership-mapper",
+  consentRequired: false,
+  config: {
+    "claim.name": "groups",
+    "full.path": "true",
+    "access.token.claim": "true",
+    "introspection.token.claim": "true",
+    "id.token.claim": "false",
+    "userinfo.token.claim": "false"
+  }
+}')"
+
+client_json="$(jq -nca --arg origin "$base_url" --argjson groups_mapper "$groups_mapper" '{
   clientId: "congenia-web",
   name: "CONGENIA — Aplicacion web",
   enabled: true,
@@ -179,7 +197,8 @@ client_json="$(jq -nca --arg origin "$base_url" '{
         "access.token.claim": "true",
         "id.token.claim": "false"
       }
-    }
+    },
+    $groups_mapper
   ]
 }')"
 
@@ -189,6 +208,16 @@ if [[ -z "$client_uuid" ]]; then
   client_uuid="$(kc_curl -fsS "${realm_url}/clients?clientId=congenia-web" | jq -er '.[0].id')"
 else
   kc_curl -fsS -o /dev/null -X PUT "${realm_url}/clients/${client_uuid}" -d "$client_json"
+fi
+
+# El PUT del cliente no agrega mappers nuevos a un cliente existente: el mapper
+# groups se crea o actualiza aparte, igual que tenant-id del cliente sadc.
+web_mappers_url="${realm_url}/clients/${client_uuid}/protocol-mappers/models"
+groups_mapper_id="$(kc_curl -fsS "$web_mappers_url" | jq -er '.[] | select(.name == "groups") | .id' | head -n 1 || true)"
+if [[ -z "$groups_mapper_id" ]]; then
+  kc_curl -fsS -o /dev/null -X POST "$web_mappers_url" -d "$groups_mapper"
+else
+  kc_curl -fsS -o /dev/null -X PUT "$web_mappers_url/${groups_mapper_id}"     -d "$(jq --arg id "$groups_mapper_id" '.id = $id' <<<"$groups_mapper")"
 fi
 
 for standard_scope in basic profile email roles; do
@@ -366,9 +395,10 @@ kc_curl -fsS "${realm_url}/clients/${client_uuid}" |
     .publicClient == true and
     .standardFlowEnabled == true and
     .attributes["pkce.code.challenge.method"] == "S256" and
-    any(.protocolMappers[]?; .name == "tenants" and .config["access.token.claim"] == "true" and .config["aggregate.attrs"] == "true")
+    any(.protocolMappers[]?; .name == "tenants" and .config["access.token.claim"] == "true" and .config["aggregate.attrs"] == "true") and
+    any(.protocolMappers[]?; .name == "groups" and .protocolMapper == "oidc-group-membership-mapper" and .config["claim.name"] == "groups" and .config["full.path"] == "true" and .config["access.token.claim"] == "true")
   ' >/dev/null || {
-    echo 'FALLA: congenia-web no conserva PKCE S256 o el mapper agregado de tenants.' >&2
+    echo 'FALLA: congenia-web no conserva PKCE S256, el mapper agregado de tenants o el mapper groups con ruta completa.' >&2
     exit 1
   }
 
