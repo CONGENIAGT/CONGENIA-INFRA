@@ -2,7 +2,7 @@
 locals {
   deploy_prefix = "${var.name_prefix}-prod"
   account_arn   = "${var.region}:${data.aws_caller_identity.current.account_id}"
-  deploy_families = [for service in ["api", "frontend", "pdf-worker", "keycloak", "cie10", "migrate"] :
+  deploy_families = [for service in ["api", "frontend", "pdf-worker", "keycloak", "cie10", "cie10-indexer", "migrate"] :
     "arn:aws:ecs:${local.account_arn}:task-definition/${local.deploy_prefix}-${service}:*"
   ]
 }
@@ -88,6 +88,16 @@ resource "aws_iam_role_policy" "deploy_read" {
       },
       {
         Effect   = "Allow"
+        Action   = ["s3vectors:GetVectorBucket", "s3vectors:ListTagsForResource"]
+        Resource = "arn:aws:s3vectors:${local.account_arn}:bucket/${local.deploy_prefix}-cie10-vectors"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3vectors:GetIndex", "s3vectors:ListTagsForResource"]
+        Resource = "arn:aws:s3vectors:${local.account_arn}:bucket/${local.deploy_prefix}-cie10-vectors/index/cie10-catalog"
+      },
+      {
+        Effect   = "Allow"
         Action   = ["logs:GetLogEvents"]
         Resource = "arn:aws:logs:${local.account_arn}:log-group:/ecs/${local.deploy_prefix}/*:*"
       }
@@ -128,7 +138,7 @@ resource "aws_iam_role_policy" "deploy_write" {
       {
         Effect   = "Allow"
         Action   = ["iam:PassRole"]
-        Resource = [for role in ["ecs-execution", "ecs-task"] : "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.deploy_prefix}-${role}"]
+        Resource = [for role in ["ecs-execution", "ecs-task", "cie10-batch", "cie10-indexer"] : "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.deploy_prefix}-${role}"]
         Condition = {
           StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" }
         }

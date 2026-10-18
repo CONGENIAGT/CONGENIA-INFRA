@@ -35,7 +35,7 @@ def allowed_resources(service, migrate=False):
     if service == "manifest":
         return allowed_resources(COMPONENTS | {"migrate"})
     if service == "cie10":
-        result = {"aws_ecs_task_definition.cie10", "aws_scheduler_schedule.cie10_monthly"}
+        result = {"aws_ecs_task_definition.cie10", "aws_ecs_task_definition.cie10_indexer", "aws_scheduler_schedule.cie10_monthly"}
     else:
         module = MODULES[service]
         result = {f"module.{module}.aws_ecs_task_definition.this"}

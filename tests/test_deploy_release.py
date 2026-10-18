@@ -209,6 +209,30 @@ def task(module="api"):
 
 
 class ReleaseGuardTests(unittest.TestCase):
+    def test_cie10_release_updates_both_tasks_and_stays_scoped(self):
+        resources = []
+        for name in ("cie10", "cie10_indexer"):
+            resource = task("cie10")
+            resource["address"] = "aws_ecs_task_definition." + name
+            resources.append(resource)
+        plan = {"resource_changes": resources}
+        self.assertEqual(len(GUARD(plan, "cie10")), 2)
+        self.assertEqual(len(GUARD(plan, {"api", "cie10"})), 2)
+        self.assertEqual(len(GUARD(plan, "manifest")), 2)
+        with self.assertRaises(ValueError):
+            GUARD(plan, "api")
+
+    def test_indexer_infrastructure_changes_remain_rejected(self):
+        for field, value in (("cpu", "1024"), ("memory", "2048"), ("task_role_arn", "other-role")):
+            resource = task("cie10")
+            resource["address"] = "aws_ecs_task_definition.cie10_indexer"
+            resource["change"]["after"][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                GUARD({"resource_changes": [resource]}, "cie10", runtime_config=True)
+        resource["change"].update(actions=["create"], before=None)
+        with self.assertRaises(ValueError):
+            GUARD({"resource_changes": [resource]}, "cie10", runtime_config=True)
+
     def test_selected_union_stays_scoped_and_migration_requires_explicit_inclusion(self):
         plan = {"resource_changes": [task("frontend"), task("pdf_worker")]}
         self.assertEqual(len(GUARD(plan, {"frontend", "pdf-worker"})), 2)

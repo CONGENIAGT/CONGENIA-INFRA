@@ -1,6 +1,6 @@
 # Configuracion no secreta; credenciales almacenadas en Secrets Manager.
 enable_reporting                   = true
-enable_cie10_schedule              = true
+enable_cie10_schedule              = false
 llm_model                          = "gpt-6-luna"
 llm_reasoning_effort               = "low"
 reporting_conversation_ttl_seconds = 1800
