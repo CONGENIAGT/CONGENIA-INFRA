@@ -211,6 +211,14 @@ ejecuta como task Fargate one-shot mediante EventBridge Scheduler al final de
 mes. La task prepara sugerencias en PostgreSQL; la revision humana sigue
 entrando por `CONGENIA-M1-SERVER` y `/dashboard/cie10`.
 
+El batch CIE-10 consulta un indice versionado en Amazon S3 Vectors. Una task
+Fargate separada, `cie10-indexer`, valida y construye el indice jerarquico desde
+el catalogo institucional y la referencia externa almacenados en S3. El indice
+usa modo `ENHANCED`; OpenAI es el proveedor activo y Titan V2 queda disponible
+solo para evaluaciones comparativas con espacios vectoriales separados. La task mensual solo
+consulta la version activa y persiste autocodificaciones preliminares; la
+confirmacion medica y auditoria permanecen en la API.
+
 ---
 
 ## Persistencia

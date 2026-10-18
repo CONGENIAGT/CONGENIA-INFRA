@@ -132,6 +132,20 @@ output "cie10_task_definition" {
   value       = aws_ecs_task_definition.cie10.arn
 }
 
+output "cie10_indexer_task_definition" {
+  description = "Task definition one-shot para reconstruir el indice RAG CIE-10."
+  value       = aws_ecs_task_definition.cie10_indexer.arn
+}
+
+output "cie10_vector_index" {
+  description = "Bucket e indice de Amazon S3 Vectors usados por CIE-10."
+  value = {
+    bucket = aws_s3vectors_vector_bucket.cie10.vector_bucket_name
+    index  = aws_s3vectors_index.cie10.index_name
+    arn    = aws_s3vectors_index.cie10.index_arn
+  }
+}
+
 output "cie10_log_group" {
   description = "Log group de CloudWatch para ejecuciones del batch CIE-10."
   value       = module.platform.log_group_names["cie10"]
@@ -144,7 +158,7 @@ output "cie10_openai_secret_arn" {
 
 output "cie10_input_uris" {
   description = "Snapshots S3 requeridos antes de ejecutar el batch."
-  value       = [local.cie10_catalog_s3_uri, local.cie10_translator_s3_uri]
+  value       = [local.cie10_catalog_s3_uri, local.cie10_translator_s3_uri, local.cie10_reference_s3_uri]
 }
 
 # ── TLS ─────────────────────────────────────────────────────────────────────
