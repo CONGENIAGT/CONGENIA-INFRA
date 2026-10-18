@@ -420,7 +420,8 @@ aws s3 cp verasativa-cie-10.csv "s3://${DOCS_BUCKET}/cie10/input/verasativa-cie-
 
 El archivo de referencia se obtiene del commit fijado
 `8e22d45e932badbc344f81e18e677a655ab3bc3a` de `verasativa/CIE-10`. Antes de
-usarlo en produccion, conservar el archivo original y su hash para poder
+usarlo en produccion, verificar el SHA-256
+`c3963d12c44706be2bc629c2beb401cd249a51db45cc24a4e22198f771824765` y conservarlo para
 reconstruir exactamente el corpus. El catalogo institucional sigue siendo la
 fuente local prioritaria; la referencia amplia el contexto y no autoriza una
 decision clinica por si sola.
@@ -436,8 +437,9 @@ aws secretsmanager put-secret-value \
 ```
 
 Aplicar primero la migracion del backend y construir una version activa del
-indice. El indexador combina ambos catalogos, genera embeddings y escribe la
-version en S3 Vectors:
+indice. El indexador valida duplicados, padres, ciclos y ancestros, combina
+ambos catalogos, genera embeddings y escribe la version en S3 Vectors. Tambien
+migra idempotentemente el indice a modo `ENHANCED` antes de ingerir:
 
 ```bash
 make migrate ENV=aws
@@ -458,11 +460,14 @@ distinto de cero. Despues de una corrida verde:
 
 1. Entrar con un usuario `congenia-admin`.
 2. Abrir `/dashboard/cie10`.
-3. Revisar el codigo principal, el nivel de respaldo y los casos marcados para
-   atencion; corregir solo las excepciones necesarias.
+3. Aceptar o corregir cada fila; los codigos externos requieren confirmacion
+   explicita del revisor.
 4. Aceptar la clausula versionada y confirmar el lote completo.
-5. Descargar el CSV mediante la URL firmada desde
-   el prefijo `cie10/export/`.
+
+La confirmacion ya no genera un CSV nuevo. Los endpoints de exportacion previos
+se conservan temporalmente solo para archivos historicos. Sin override, la task
+asigna el mes calendario anterior en `America/Guatemala`; para un backfill se
+puede sobrescribir `CIE10_BATCH_PERIOD=YYYY-MM` al ejecutar la task manual.
 
 Cada actualizacion del catalogo o del modelo de embeddings requiere una nueva
 version `cie10_rag_version` en `envs/aws/features.tfvars` y una corrida de
@@ -470,9 +475,15 @@ version `cie10_rag_version` en `envs/aws/features.tfvars` y una corrida de
 del siguiente batch. No se elimina la version anterior: queda archivada para
 trazabilidad de las sugerencias ya generadas.
 
-El scheduler se crea deshabilitado. Despues de validar la corrida manual,
-versionar `enable_cie10_schedule = true` en `envs/aws/features.tfvars`, revisar
-`make plan ENV=aws` y aplicar conservando el estado deseado de los servicios.
+Produccion conserva `CIE10_EMBEDDING_PROVIDER=openai`, modelo
+`text-embedding-3-small`, 512 dimensiones y cosine. Titan V2 queda habilitado
+solo para evaluacion mediante override de task; usa una version RAG separada y
+no se promueve hasta igualar Recall@5 sin una regresion clinicamente relevante
+en Recall@1. La indexacion Titan queda en `READY`; promoverla exige además el
+override explícito `CIE10_ACTIVATE_RAG=true`.
+
+El scheduler sigue el valor versionado de `enable_cie10_schedule`. Antes de
+habilitarlo, validar la corrida manual, revisar `make plan ENV=aws` y aplicar.
 Repetira la corrida con `cron(0 6 L * ? *)` en `America/Guatemala`.
 
 ## 2.7 Validar reportería y agente
