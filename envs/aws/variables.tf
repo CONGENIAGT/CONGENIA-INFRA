@@ -132,7 +132,7 @@ variable "cie10_rag_version" {
 }
 
 variable "cie10_review_export_s3_prefix" {
-  description = "Prefijo donde el batch exporta CSVs de decisiones revisadas."
+  description = "Prefijo de exportaciones CIE10 historicas que sirve la API."
   type        = string
   default     = null
 }
