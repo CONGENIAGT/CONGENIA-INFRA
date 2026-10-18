@@ -266,6 +266,35 @@ class ReleaseGuardTests(unittest.TestCase):
         resource["change"]["after"]["task_role_arn"] = "other-role"
         with self.assertRaises(ValueError): GUARD({"resource_changes": [resource]}, "api", runtime_config=True)
 
+    def test_migration_without_task_role_accepts_empty_and_null_representations(self):
+        for before, after in [("", None), (None, ""), (None, None), ("", "")]:
+            resource = task("migrate")
+            resource["change"]["before"]["task_role_arn"] = before
+            resource["change"]["after"]["task_role_arn"] = after
+            for runtime_config in (False, True):
+                with self.subTest(before=before, after=after, runtime_config=runtime_config):
+                    self.assertEqual(len(GUARD({"resource_changes": [resource]}, "api", True, runtime_config)), 1)
+                    self.assertEqual(len(GUARD({"resource_changes": [resource]}, "migrate", runtime_config=runtime_config)), 1)
+
+    def test_task_role_assignment_removal_and_replacement_stay_rejected(self):
+        old_role = "arn:aws:iam::123456789012:role/old"
+        new_role = "arn:aws:iam::123456789012:role/new"
+        for before, after in [(None, new_role), ("", new_role), (old_role, None), (old_role, ""), (old_role, new_role)]:
+            resource = task("migrate")
+            resource["change"]["before"]["task_role_arn"] = before
+            resource["change"]["after"]["task_role_arn"] = after
+            with self.subTest(before=before, after=after), self.assertRaisesRegex(ValueError, "task_role_arn"):
+                GUARD({"resource_changes": [resource]}, "api", True, runtime_config=True)
+
+    def test_unknown_task_role_cannot_be_treated_as_absent(self):
+        for before in (None, ""):
+            resource = task("migrate")
+            resource["change"]["before"]["task_role_arn"] = before
+            resource["change"]["after"]["task_role_arn"] = None
+            resource["change"]["after_unknown"] = {"task_role_arn": True}
+            with self.subTest(before=before), self.assertRaisesRegex(ValueError, "task_role_arn"):
+                GUARD({"resource_changes": [resource]}, "api", True, runtime_config=True)
+
     def test_provider_empty_modes_equal_omitted_defaults_but_not_host_mode(self):
         resource = task()
         resource["change"]["before"].update(pid_mode="", ipc_mode="")
