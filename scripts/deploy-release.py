@@ -196,9 +196,11 @@ def guard_plan(plan, service, migrate=False, runtime_config=False):
             if change["actions"] not in [["delete", "create"], ["create", "delete"], ["update"]]:
                 raise ValueError(f"Accion no permitida: {address}")
             for key in ("family", "cpu", "memory", "network_mode", "execution_role_arn", "task_role_arn", "requires_compatibilities", "runtime_platform", "volume", "ephemeral_storage", "pid_mode", "ipc_mode", "proxy_configuration", "tags"):
-                # El provider representa los modos omitidos como "" al leer
-                # y null al planear una revision nueva. Son el mismo default.
-                if key in {"pid_mode", "ipc_mode"} and before.get(key) in (None, "") and after.get(key) in (None, ""):
+                if key == "task_role_arn" and change.get("after_unknown", {}).get(key):
+                    raise ValueError(f"Configuracion ajena a una imagen: {address}.{key}")
+                # El provider representa modos y task role omitidos como ""
+                # al leer y null al planear una revision nueva: misma ausencia.
+                if key in {"pid_mode", "ipc_mode", "task_role_arn"} and before.get(key) in (None, "") and after.get(key) in (None, ""):
                     continue
                 if before.get(key) != after.get(key):
                     raise ValueError(f"Configuracion ajena a una imagen: {address}.{key}")
