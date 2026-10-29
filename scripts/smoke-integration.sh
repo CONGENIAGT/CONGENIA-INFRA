@@ -77,6 +77,7 @@ registration=$(curl -fsS \
       "idiomaConsentimiento": "ESPANOL",
       "aceptacionTerminos": true,
       "aceptacionContacto": false,
+      "firmaPng": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
       "firmaEvidenciaTecnica": {"source":"smoke-test"}
     }
   }')
@@ -88,6 +89,6 @@ ficha_id=$(jq -er --arg expected "$expected_ficha_id" '
 jq -e '.data.consentimientoId | type == "string" and length > 0' >/dev/null <<<"$registration"
 echo "      OK"
 
-echo "OK: OAuth -> sesion -> activacion -> persistencia -> PDF funciona sin exponer la capability."
+echo "OK: OAuth -> sesion -> activacion -> persistencia verificados; PDF encolado."
 
 echo "Ficha de prueba: ${ficha_id}"

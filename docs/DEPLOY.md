@@ -50,6 +50,25 @@ sobre VPC, ELB, ACM, ECS, ECR, IAM, RDS, ElastiCache, Secrets Manager,
 CloudWatch, S3, Route 53 y Cloud Map. Estas variables viven en la terminal; no
 van a `.env` ni a Git.
 
+Para una cuenta nueva tambien se puede iniciar una sesion temporal desde el
+navegador, sin reemplazar las credenciales de los perfiles anteriores:
+
+```bash
+aws login --profile congenia-new --region us-east-1
+aws sts get-caller-identity --profile congenia-new
+```
+
+Si Terraform no reconoce las sesiones de `aws login`, usar el proveedor de
+credenciales de la CLI:
+
+```bash
+aws configure set credential_process 'aws configure export-credentials --profile congenia-new --format process' --profile congenia-new-terraform
+aws configure set region us-east-1 --profile congenia-new-terraform
+export AWS_PROFILE=congenia-new-terraform
+```
+
+Referencia: [login con credenciales de consola](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sign-in.html).
+
 ## 1.3 Bucket del estado remoto
 
 Vive fuera de los dos stacks a proposito: es su backend, no puede
@@ -97,6 +116,7 @@ acotarlos y reexportar el backend en cada terminal:
 ```bash
 AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 export TF_CLI_ARGS_init="-reconfigure -backend-config=bucket=congenia-tfstate-${AWS_ACCOUNT_ID}"
+export TF_VAR_state_bucket_name="congenia-tfstate-${AWS_ACCOUNT_ID}"
 export TF_VAR_name_prefix="congenia-$(printf '%s' "$AWS_ACCOUNT_ID" | cut -c 7-12)"
 export TF_VAR_domain_name="app.ejemplo.com"
 ```
@@ -109,8 +129,16 @@ terraform -chdir=envs/shared plan
 make create ENV=shared
 ```
 
-El plan debe crear cinco repositorios ECR, el proveedor OIDC, un rol y una zona
-alojada.
+El plan debe crear seis repositorios ECR, el proveedor OIDC, los roles de
+publicacion y despliegue, y una zona alojada.
+
+En el primer despliegue de otra cuenta, mantener `enable_services=false`,
+`enable_reporting=false` y `enable_cie10_schedule=false` mediante un archivo
+de variables pasado despues de `features.tfvars`. Publicar las imagenes y
+preparar la base antes de arrancar servicios. Si no se recupero la
+`APP_ENCRYPTION_KEY` original, inicializar una base nueva: una clave nueva no
+permite descifrar los pacientes del respaldo. Conservar el respaldo original
+sin alteraciones para una recuperacion posterior.
 
 El proveedor OIDC es unico por cuenta AWS. Si otro proyecto ya lo creo, el
 apply falla con `EntityAlreadyExists` y se reutiliza el existente:
@@ -175,9 +203,38 @@ repositorios ni GitHub App que configurar. Los publicadores solo escriben en ECR
 
 El rol de despliegue se declara en `envs/shared/deploy.tf`; aplicar ese stack una
 vez y consultar `terraform -chdir=envs/shared output -raw deploy_role_arn`.
-Opcionalmente guardar ese ARN como variable `AWS_DEPLOY_ROLE_ARN` en INFRA; el
-workflow ya incluye el ARN de esta cuenta como default. El subject esta
-restringido a la identidad inmutable de `CONGENIA-INFRA` y la rama `master`.
+Guardar ese ARN como variable `AWS_DEPLOY_ROLE_ARN` en INFRA. El workflow
+comprueba la cuenta y requiere estas variables de repositorio antes de
+autenticarse o inicializar Terraform:
+
+| Variable en CONGENIA-INFRA | Valor de la cuenta nueva |
+|---|---|
+| `AWS_ACCOUNT_ID` | `789165946497` |
+| `AWS_DEPLOY_ROLE_ARN` | `arn:aws:iam::789165946497:role/congenia-946497-gha-deploy` |
+| `AWS_REGION` | `us-east-1` |
+| `TF_STATE_BUCKET` | `congenia-tfstate-789165946497` |
+| `TF_NAME_PREFIX` | `congenia-946497` |
+| `TF_DOMAIN_NAME` | `cogenia.app` |
+
+Configurar en **Settings -> Secrets and variables -> Actions -> Variables**.
+Son identificadores publicos de configuracion; la autenticacion AWS utiliza
+OIDC y las credenciales temporales se obtienen en cada ejecucion.
+`scripts/ci-context.py` prepara el backend con `allowed_account_ids`, y exporta
+las variables Terraform de region, prefijo y dominio. La identidad recibida y
+el propietario del bucket se comprueban antes de planificar.
+
+En cada publicador de la tabla anterior, el rol es
+`arn:aws:iam::789165946497:role/congenia-946497-gha-ecr-push` y el registry es
+`789165946497.dkr.ecr.us-east-1.amazonaws.com`. La region es `us-east-1`.
+El subject de despliegue esta restringido a la identidad inmutable de
+`CONGENIA-INFRA` y la rama `master`.
+
+Publicar los cambios de INFRA en `master` antes de ejecutar el workflow con
+estas variables. Como primera comprobacion, ejecutar `publish-image` de
+PDF-WORKER sobre `main`, y despues `deploy-production` de INFRA con
+`service=pdf-worker`, `latest=true` y `preview_only=true`. El preview revisa la
+imagen publicada y el plan sin aplicar cambios. Reutilizar el JSON
+`resolved_tags` del preview para fijar exactamente esa seleccion al desplegar.
 
 El workflow necesita poder escribir directamente en `master`. Si se agregan
 reglas de proteccion que lo impidan, habra que configurar un actor autorizado
@@ -277,7 +334,7 @@ make cost-status
 ```
 
 En una cuenta independiente, reexportar tambien `TF_CLI_ARGS_init`,
-`TF_VAR_name_prefix` y `TF_VAR_domain_name` de 1.3.
+`TF_VAR_state_bucket_name`, `TF_VAR_name_prefix` y `TF_VAR_domain_name` de 1.3.
 
 ## 2.2 Revisar el plan
 

@@ -69,6 +69,10 @@ locals {
 module "keycloak" {
   source = "../../modules/ecs-service"
 
+  # ECS exige que el target group ya este asociado a un listener. Esperar al
+  # modulo completo tambien cubre la transicion del listener HTTP al HTTPS.
+  depends_on = [module.edge]
+
   name             = "keycloak"
   name_prefix      = "${var.name_prefix}-${var.environment}"
   cpu_architecture = "X86_64"
@@ -155,6 +159,8 @@ module "rabbitmq" {
 
 module "api" {
   source = "../../modules/ecs-service"
+
+  depends_on = [module.edge]
 
   name             = "api"
   name_prefix      = "${var.name_prefix}-${var.environment}"
@@ -258,6 +264,8 @@ module "pdf_worker" {
 
 module "frontend" {
   source = "../../modules/ecs-service"
+
+  depends_on = [module.edge]
 
   name             = "frontend"
   name_prefix      = "${var.name_prefix}-${var.environment}"

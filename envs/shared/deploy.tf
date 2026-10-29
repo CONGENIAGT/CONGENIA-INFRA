@@ -64,12 +64,12 @@ resource "aws_iam_role_policy" "deploy_read" {
       {
         Effect   = "Allow"
         Action   = ["ecr:DescribeRepositories", "ecr:DescribeImages", "ecr:ListTagsForResource"]
-        Resource = "arn:aws:ecr:${local.account_arn}:repository/${var.name_prefix}/*"
+        Resource = module.registry.repository_arns
       },
       {
         Effect   = "Allow"
         Action   = ["s3:GetBucket*", "s3:GetEncryptionConfiguration", "s3:GetLifecycleConfiguration", "s3:GetAccelerateConfiguration", "s3:ListBucket"]
-        Resource = ["arn:aws:s3:::${local.deploy_prefix}-docs", "arn:aws:s3:::congenia-tfstate"]
+        Resource = ["arn:aws:s3:::${local.deploy_prefix}-docs", "arn:aws:s3:::${var.state_bucket_name}"]
       },
       {
         Effect   = "Allow"
@@ -79,12 +79,12 @@ resource "aws_iam_role_policy" "deploy_read" {
       {
         Effect   = "Allow"
         Action   = ["s3:GetObject", "s3:PutObject"]
-        Resource = ["arn:aws:s3:::congenia-tfstate/congenia/aws/terraform.tfstate", "arn:aws:s3:::congenia-tfstate/congenia/aws/terraform.tfstate.tflock"]
+        Resource = ["arn:aws:s3:::${var.state_bucket_name}/congenia/aws/terraform.tfstate", "arn:aws:s3:::${var.state_bucket_name}/congenia/aws/terraform.tfstate.tflock"]
       },
       {
         Effect   = "Allow"
         Action   = ["s3:DeleteObject"]
-        Resource = "arn:aws:s3:::congenia-tfstate/congenia/aws/terraform.tfstate.tflock"
+        Resource = "arn:aws:s3:::${var.state_bucket_name}/congenia/aws/terraform.tfstate.tflock"
       },
       {
         Effect   = "Allow"

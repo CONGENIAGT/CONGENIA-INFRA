@@ -50,7 +50,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      AWS_REGION: us-east-1
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      TF_NAME_PREFIX: ${{ vars.TF_NAME_PREFIX }}
+      TF_DOMAIN_NAME: ${{ vars.TF_DOMAIN_NAME }}
       AWS_PAGER: ''
       TF_IN_AUTOMATION: 'true'
     steps:
@@ -67,10 +72,20 @@ jobs:
           terraform fmt -check -recursive
           python3 -m unittest discover -s tests -q
           for script in scripts/*.sh; do bash -n "$script"; done
+      - name: Preparar cuenta y backend de Terraform
+        run: python3 scripts/ci-context.py
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN || 'arn:aws:iam::940213460779:role/congenia-gha-deploy' }}
-          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          unset-current-credentials: true
+          role-session-name: deploy-${{ github.run_id }}
+      - name: Comprobar identidad y propiedad del backend
+        run: |
+          set -euo pipefail
+          account=$(aws sts get-caller-identity --query Account --output text)
+          test "$account" = "$AWS_ACCOUNT_ID"
+          aws s3api head-bucket --bucket "$TF_STATE_BUCKET" --expected-bucket-owner "$AWS_ACCOUNT_ID"
       - name: Plan, migracion opcional, despliegue y salud
         env:
           SERVICE: ${{ inputs.service }}
@@ -111,6 +126,6 @@ jobs:
             echo "Ultimas imagenes publicadas: ${LATEST}; componentes: ${COMPONENTS}"
             echo "Solo plan: ${PREVIEW_ONLY}"
             echo "Incluir variables de ejecucion: ${RUNTIME_CONFIG}"
-            echo "Produccion: https://cogenia.app"
+            echo "Produccion: https://${TF_DOMAIN_NAME}"
             echo "Los planes y el estado contienen secretos y no se publican como artifacts."
           } >> "$GITHUB_STEP_SUMMARY"

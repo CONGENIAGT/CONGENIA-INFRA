@@ -8,6 +8,12 @@ variable "name_prefix" {
   default = "congenia"
 }
 
+variable "state_bucket_name" {
+  description = "Bucket del backend de envs/aws; debe coincidir con -backend-config=bucket al inicializar ese stack."
+  type        = string
+  default     = "congenia-tfstate"
+}
+
 variable "github_org" {
   type    = string
   default = "CONGENIAGT"

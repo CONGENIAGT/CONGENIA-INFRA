@@ -73,7 +73,8 @@ def selected_services(args):
 
 
 def ecr_images(service, tag=None):
-    args = ["aws", "ecr", "describe-images", "--region", "us-east-1", "--repository-name", "congenia/" + service]
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
+    args = ["aws", "ecr", "describe-images", "--region", region, "--repository-name", "congenia/" + service]
     # La CLI pagina automaticamente. No truncar antes de ordenar por fecha.
     args += ["--image-ids", "imageTag=" + tag] if tag else ["--filter", "tagStatus=TAGGED"]
     return json.loads(command([*args, "--output", "json"]))["imageDetails"]
