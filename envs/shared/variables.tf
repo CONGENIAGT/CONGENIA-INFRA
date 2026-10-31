@@ -14,6 +14,21 @@ variable "state_bucket_name" {
   default     = "congenia-tfstate"
 }
 
+variable "state_reader_arns" {
+  description = <<-DESC
+    ARN de usuarios o roles IAM, ademas de la cuenta raiz y del rol de
+    despliegue, que pueden leer el estado de Terraform (contiene secretos).
+    Vacio por omision: hoy se opera con la cuenta raiz.
+  DESC
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for arn in var.state_reader_arns : can(regex("^arn:aws:iam::[0-9]{12}:(user|role)/", arn))])
+    error_message = "state_reader_arns solo admite ARN de usuarios o roles IAM."
+  }
+}
+
 variable "github_org" {
   type    = string
   default = "CONGENIAGT"
