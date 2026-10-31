@@ -15,11 +15,12 @@ locals {
     POSTGRES_DB   = module.data.db_name
     POSTGRES_USER = "congenia_app"
 
-    # RDS exige TLS (rds.force_ssl=1) y el Pool de src/config/db.js no declara
-    # `ssl`, asi que node-postgres lee esta variable. `no-verify` cifra sin
-    # validar la CA de Amazon, que Node no trae en su almacen por defecto.
-    # Sin esto: "no pg_hba.conf entry ... no encryption".
-    PGSSLMODE = "no-verify"
+    # RDS exige TLS (rds.force_ssl=1). verify-full valida la CA y el nombre del
+    # servidor (correccion A4; la version evaluada usaba no-verify, cifrado sin
+    # validar, sin proteccion contra MITM). Las imagenes de API, worker y CIE-10
+    # traen el paquete de CA de RDS y fijan POSTGRES_SSL_CA_FILE; requieren
+    # api >= la release de A4 y pdf-worker con certs/ incluido.
+    PGSSLMODE = "verify-full"
   }
 
   rabbit_env = {
