@@ -20,6 +20,13 @@ output "db_access_context" {
     db_host     = module.data.db_address
     db_port     = module.data.db_port
     db_name     = module.data.db_name
+
+    # Consola de Keycloak por el mismo relay (A1): nombre de Cloud Map, puerto
+    # del contenedor, grupo de operador y puerto local fijo del tunel.
+    operator_sg_id       = module.network.operator_sg_id
+    keycloak_host        = "keycloak.${aws_service_discovery_private_dns_namespace.this.name}"
+    keycloak_port        = local.ports.keycloak
+    keycloak_tunnel_port = var.keycloak_admin_tunnel_port
   }
 }
 

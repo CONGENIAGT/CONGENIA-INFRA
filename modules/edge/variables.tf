@@ -59,3 +59,20 @@ variable "tags" {
   type    = map(string)
   default = {}
 }
+
+variable "blocked_paths" {
+  description = <<-EOT
+    Rutas que el ALB responde con 404 fijo antes de evaluar el resto de las
+    reglas. Sirve para rutas administrativas que no deben publicarse: sin esta
+    regla caerian en el destino por defecto (el frontend), que devuelve su
+    index.html con 200.
+  EOT
+  type        = list(string)
+  default     = []
+
+  validation {
+    # El ALB admite hasta 5 valores de condicion por regla.
+    condition     = length(var.blocked_paths) <= 5
+    error_message = "blocked_paths admite como maximo 5 rutas."
+  }
+}

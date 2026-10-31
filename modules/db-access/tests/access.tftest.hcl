@@ -67,3 +67,46 @@ run "private_tunnel_and_cleanup_contract" {
     error_message = "La asignacion al operador debe pertenecer a Terraform para retirarla durante destroy."
   }
 }
+
+run "keycloak_console_through_the_same_relay" {
+  command = apply
+  variables {
+    connection = {
+      version              = 1
+      account_id           = "123456789012"
+      region               = "us-east-1"
+      name_prefix          = "congenia"
+      environment          = "prod"
+      vpc_id               = "vpc-0123456789abcdef0"
+      subnet_id            = "subnet-0123456789abcdef0"
+      data_sg_id           = "sg-0123456789abcdef0"
+      db_host              = "test.us-east-1.rds.amazonaws.com"
+      db_port              = 5432
+      db_name              = "congenia"
+      operator_sg_id       = "sg-0fedcba9876543210"
+      keycloak_host        = "keycloak.congenia.internal"
+      keycloak_port        = 8080
+      keycloak_tunnel_port = 18080
+    }
+  }
+  assert {
+    condition     = contains(aws_instance.relay.vpc_security_group_ids, "sg-0fedcba9876543210")
+    error_message = "El relay debe adjuntar el grupo de operador para llegar a Keycloak."
+  }
+  assert {
+    condition     = jsondecode(aws_ssm_document.keycloak[0].content).properties.host == "keycloak.congenia.internal" && jsondecode(aws_ssm_document.keycloak[0].content).properties.portNumber == "8080"
+    error_message = "El tunel de Keycloak debe tener destino fijo."
+  }
+  assert {
+    condition     = jsondecode(aws_ssm_document.keycloak[0].content).parameters.localPortNumber.allowedPattern == "^18080$" && !contains(keys(jsondecode(aws_ssm_document.keycloak[0].content).parameters), "host")
+    error_message = "El puerto local debe ser el que Keycloak anuncia y el host no es parametro."
+  }
+}
+
+run "older_contract_has_no_keycloak_tunnel" {
+  command = apply
+  assert {
+    condition     = length(aws_ssm_document.keycloak) == 0 && length(aws_instance.relay.vpc_security_group_ids) == 1
+    error_message = "Sin destino de Keycloak en el contrato no se crea su tunel."
+  }
+}

@@ -12,6 +12,11 @@ variable "connection" {
     db_host     = string
     db_port     = number
     db_name     = string
+    # Consola de Keycloak (opcional: contratos anteriores no la traen).
+    operator_sg_id       = optional(string)
+    keycloak_host        = optional(string)
+    keycloak_port        = optional(number)
+    keycloak_tunnel_port = optional(number)
   })
 }
 

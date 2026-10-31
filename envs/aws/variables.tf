@@ -376,6 +376,22 @@ variable "enable_client_vpn" {
   default     = false
 }
 
+variable "keycloak_admin_tunnel_port" {
+  description = <<-EOT
+    Puerto local con el que los operadores abren la consola de Keycloak por el
+    tunel de Session Manager (stack db-access). Keycloak publica su consola en
+    http://localhost:<puerto>, que solo existe en la maquina del operador: el
+    ALB no enruta /admin/*.
+  EOT
+  type        = number
+  default     = 18080
+
+  validation {
+    condition     = var.keycloak_admin_tunnel_port >= 1024 && var.keycloak_admin_tunnel_port <= 65535
+    error_message = "keycloak_admin_tunnel_port debe ser un puerto no privilegiado."
+  }
+}
+
 variable "client_vpn_server_certificate_arn" {
   type    = string
   default = null

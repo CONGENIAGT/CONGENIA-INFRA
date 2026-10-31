@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${KEYCLOAK_BASE_URL:?Define KEYCLOAK_BASE_URL, por ejemplo https://cogenia.app}"
+# KEYCLOAK_BASE_URL es la URL de administracion. Desde la correccion A1 el ALB
+# no publica /admin/* ni /realms/master/*: se usa el tunel privado
+# (make db-access-keycloak), es decir http://localhost:18080.
+# KEYCLOAK_PUBLIC_URL es el origen publico del cliente web (redirect URIs y la
+# prueba final de autorizacion); por compatibilidad toma KEYCLOAK_BASE_URL.
+: "${KEYCLOAK_BASE_URL:?Define KEYCLOAK_BASE_URL, por ejemplo http://localhost:18080 por el tunel}"
 : "${KEYCLOAK_ADMIN_PASSWORD:?Define KEYCLOAK_ADMIN_PASSWORD}"
 : "${KEYCLOAK_MEDICO_PASSWORD:?Define KEYCLOAK_MEDICO_PASSWORD para la clave temporal}"
 command -v python3 >/dev/null || { echo 'Falta Python 3 para configurar Keycloak.' >&2; exit 1; }
@@ -13,6 +18,8 @@ medico_tenants="${KEYCLOAK_MEDICO_TENANTS:-23,254}"
 superadmin_user="${KEYCLOAK_SUPERADMIN_USERNAME:-admin-doctor}"
 sadc_tenant="${KEYCLOAK_SADC_TENANT:-254}"
 base_url="${KEYCLOAK_BASE_URL%/}"
+public_url="${KEYCLOAK_PUBLIC_URL:-$base_url}"
+public_url="${public_url%/}"
 realm_url="${base_url}/admin/realms/congenia"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -139,7 +146,7 @@ groups_mapper="$(jq -nca '{
   }
 }')"
 
-client_json="$(jq -nca --arg origin "$base_url" --argjson groups_mapper "$groups_mapper" '{
+client_json="$(jq -nca --arg origin "$public_url" --argjson groups_mapper "$groups_mapper" '{
   clientId: "congenia-web",
   name: "CONGENIA — Aplicacion web",
   enabled: true,
@@ -424,11 +431,11 @@ kc_curl -fsS "$sadc_mappers_url" |
 
 
 authorization_probe="$(command curl --connect-timeout 10 --max-time 30 -sS -o /dev/null -w '%{http_code} %{redirect_url}' -G \
-  "${base_url}/realms/congenia/protocol/openid-connect/auth" \
+  "${public_url}/realms/congenia/protocol/openid-connect/auth" \
   --data-urlencode client_id=congenia-web \
   --data-urlencode response_type=code \
   --data-urlencode 'scope=openid profile email' \
-  --data-urlencode "redirect_uri=${base_url}/" \
+  --data-urlencode "redirect_uri=${public_url}/" \
   --data-urlencode state=scope-verification \
   --data-urlencode code_challenge=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA \
   --data-urlencode code_challenge_method=S256)"
