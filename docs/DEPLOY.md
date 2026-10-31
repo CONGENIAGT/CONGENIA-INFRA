@@ -110,6 +110,11 @@ aws s3api put-bucket-encryption --bucket "$BACKEND_BUCKET" \
 El versionado no es opcional: es lo unico que permite recuperar un estado
 corrupto. Terraform usa locking nativo de S3; no hace falta DynamoDB.
 
+La politica del bucket no se pone a mano: la escribe `envs/shared`
+(`state-bucket.tf`) en su primer apply. Exige TLS y deniega la lectura del
+estado —que contiene las credenciales generadas— a todo principal que no sea
+la cuenta raiz, el rol de despliegue de CI o un ARN de `state_reader_arns`.
+
 En una cuenta independiente los nombres de S3 son globales, asi que hay que
 acotarlos y reexportar el backend en cada terminal:
 
