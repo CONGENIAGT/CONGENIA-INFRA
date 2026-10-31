@@ -72,9 +72,16 @@ variable "enable_private_endpoints" {
 }
 
 variable "enable_waf" {
-  description = "Activa WAF y sus reglas administradas. Tiene costo fijo adicional."
+  description = <<-EOT
+    WAF v2 delante del ALB: conjunto comun (OWASP), entradas maliciosas
+    conocidas, inyeccion SQL y limite por IP. Encendido desde la correccion A2,
+    posterior a la evaluacion. Costo estimado en us-east-1: USD 5/mes por el
+    web ACL + USD 1/mes por cada una de sus 4 reglas + USD 0.60 por millon de
+    peticiones (unos USD 9/mes a este volumen). Usa 1102 de las 1500 WCU
+    incluidas.
+  EOT
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "enable_flow_logs" {

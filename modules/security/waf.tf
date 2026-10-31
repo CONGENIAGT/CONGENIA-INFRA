@@ -34,6 +34,16 @@ resource "aws_wafv2_web_acl" "this" {
         managed_rule_group_statement {
           name        = rule.key
           vendor_name = "AWS"
+
+          dynamic "rule_action_override" {
+            for_each = lookup(var.waf_rule_action_overrides, rule.key, [])
+            content {
+              name = rule_action_override.value
+              action_to_use {
+                count {}
+              }
+            }
+          }
         }
       }
 
