@@ -138,7 +138,7 @@ resource "aws_ecs_task_definition" "cie10" {
       { name = "POSTGRES_PORT", value = tostring(module.data.db_port) },
       { name = "POSTGRES_DB", value = module.data.db_name },
       { name = "POSTGRES_USER", value = "congenia_app" },
-      { name = "PGSSLMODE", value = "no-verify" },
+      { name = "PGSSLMODE", value = "verify-full" },
     ], local.cie10_optional_environment, local.cie10_rag_environment)
 
     secrets = [
@@ -195,7 +195,7 @@ resource "aws_ecs_task_definition" "cie10_indexer" {
       { name = "POSTGRES_PORT", value = tostring(module.data.db_port) },
       { name = "POSTGRES_DB", value = module.data.db_name },
       { name = "POSTGRES_USER", value = "congenia_app" },
-      { name = "PGSSLMODE", value = "no-verify" },
+      { name = "PGSSLMODE", value = "verify-full" },
     ], local.cie10_rag_environment)
     secrets = [
       { name = "POSTGRES_PASSWORD", valueFrom = aws_secretsmanager_secret.db_app.arn },
