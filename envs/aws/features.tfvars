@@ -1,5 +1,8 @@
 # Configuracion no secreta; credenciales almacenadas en Secrets Manager.
-enable_reporting                   = false
+# Reporteria encendida (2026-10-31): los cuatro secretos reporting-* deben tener
+# valor en Secrets Manager antes del apply; sin version, la tarea API no arranca.
+# La base SIGSA vive en Neon (simula la del cliente); la de CONGENIA es RDS.
+enable_reporting                   = true
 enable_cie10_schedule              = false
 llm_model                          = "gpt-6-luna"
 llm_reasoning_effort               = "low"
