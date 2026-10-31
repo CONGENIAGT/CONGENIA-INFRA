@@ -126,6 +126,80 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "docs" {
   }
 }
 
+# Politica del bucket (correccion A6). El cifrado por omision (SSE-S3) lo
+# aplica AWS a toda escritura; esta politica lo vuelve un control propio y
+# verificable:
+#   - toda peticion sin TLS se rechaza;
+#   - todo PutObject debe declarar x-amz-server-side-encryption (AES256 o
+#     aws:kms). La API, el worker y CIE-10 la envian (S3_SERVER_SIDE_ENCRYPTION)
+#     y la API la firma en las URL prefirmadas, que la ficha repite en el PUT.
+# Una carga manual con la CLI debe usar `--sse AES256` y, para archivos de mas
+# de 8 MB, subir el umbral de multipart: las partes de un multipart no llevan
+# la cabecera y la politica las rechazaria.
+data "aws_iam_policy_document" "docs" {
+  statement {
+    sid       = "DenyInsecureTransport"
+    effect    = "Deny"
+    actions   = ["s3:*"]
+    resources = [aws_s3_bucket.docs.arn, "${aws_s3_bucket.docs.arn}/*"]
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+
+  statement {
+    sid       = "DenyPutWithoutEncryptionHeader"
+    effect    = "Deny"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.docs.arn}/*"]
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "Null"
+      variable = "s3:x-amz-server-side-encryption"
+      values   = ["true"]
+    }
+  }
+
+  statement {
+    sid       = "DenyPutWithOtherEncryption"
+    effect    = "Deny"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.docs.arn}/*"]
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "StringNotEquals"
+      variable = "s3:x-amz-server-side-encryption"
+      values   = ["AES256", "aws:kms"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "docs" {
+  bucket = aws_s3_bucket.docs.id
+  policy = data.aws_iam_policy_document.docs.json
+
+  # El bloqueo de acceso publico debe existir antes de poner cualquier politica.
+  depends_on = [aws_s3_bucket_public_access_block.docs]
+}
+
 resource "aws_s3_bucket_cors_configuration" "docs" {
   count  = length(var.docs_cors_allowed_origins) > 0 ? 1 : 0
   bucket = aws_s3_bucket.docs.id
