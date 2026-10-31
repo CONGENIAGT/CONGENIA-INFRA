@@ -127,7 +127,8 @@ nadie los resuelva.
    —es decir, la ultima que se evalua—: cualquier cosa que no reclamen la API
    ni Keycloak sirve el SPA.
 4. La tarea vive en una **subred privada**. El ALB llega a ella porque el
-   `app-sg` acepta trafico del `edge-sg`, no porque la tarea sea alcanzable.
+   `app-sg` acepta trafico del `edge-sg` en los puertos de sus target groups
+   (80, 3000 y 8080), no porque la tarea sea alcanzable.
 5. Si la peticion toca la base, la API abre conexion a RDS. El `data-sg` solo
    acepta 5432 y 6379, y solo desde `app-sg`.
 
@@ -146,7 +147,8 @@ Tres controles activos, con alcances distintos, mas uno disponible y apagado.
    2. edge-sg    ──────▼──────  con estado, 443/80 desde 0.0.0.0/0
                        │
                        ▼  solo desde edge-sg
-   2. app-sg     ─────────────  tareas ECS; entre pares por `self = true`
+   2. app-sg     ─────────────  tareas ECS; ALB solo a 80/3000/8080 y
+                                 pares solo a los puertos que usan
    1. NACL app   ═════════════  solo trafico de la VPC + efimero
                        │
                        ▼  solo desde app-sg
