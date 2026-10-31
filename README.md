@@ -74,7 +74,7 @@ make cost-status
 - `verify-teardown` le pregunta a AWS qué recursos del proyecto siguen vivos,
   en lugar de confiar en que Terraform terminó en verde.
 - Opciones Terraform adicionales se pasan con `TF_VARS`, por ejemplo
-  `TF_VARS='-var=enable_waf=true'`.
+  `TF_VARS='-var=enable_flow_logs=true'`.
 
 ## Despliegue oficial en AWS
 
@@ -270,7 +270,8 @@ Los defaults oficiales minimizan consumo sin cambiar la identidad productiva:
 - servicios apagados hasta ejecutar `make open`;
 - endpoint gateway S3, que no tiene cargo adicional;
 - NAT habilitado para la salida requerida por los servicios;
-- endpoints privados, WAF, Flow Logs, VPN y Multi-AZ desactivados por defecto.
+- WAF encendido (correccion A2); endpoints privados, Flow Logs, VPN y
+  Multi-AZ desactivados por defecto.
 
 `free_plan_mode=true` impide durante `plan` usar Multi-AZ, tamaños mayores,
 más de un día de backup o más de una tarea por servicio. Para cambiar esas

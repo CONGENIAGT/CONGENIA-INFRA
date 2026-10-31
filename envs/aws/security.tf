@@ -16,6 +16,17 @@ module "security" {
   alb_arn        = module.edge.alb_arn
   waf_rate_limit = 2000
 
+  # Dos reglas del conjunto comun quedan en conteo, no en bloqueo:
+  # - SizeRestrictions_BODY bloquea cuerpos de mas de 8 KB, y el alta de la
+  #   ficha lleva la firma PNG en base64 (la API acepta hasta 300 KB y valida
+  #   el PNG por su cuenta).
+  # - NoUserAgent_HEADER bloquea peticiones sin User-Agent, que algunos
+  #   clientes servidor a servidor no envian (integracion SADC por OAuth).
+  # El resto del conjunto, entradas maliciosas, SQLi y el limite por IP bloquean.
+  waf_rule_action_overrides = {
+    AWSManagedRulesCommonRuleSet = ["SizeRestrictions_BODY", "NoUserAgent_HEADER"]
+  }
+
   enable_flow_logs        = var.enable_flow_logs
   flow_log_retention_days = 7
 

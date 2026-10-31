@@ -162,7 +162,7 @@ Tres controles activos, con alcances distintos, mas uno disponible y apagado.
 | 1 | NACL (3) | que paquetes entran o salen de una *subred* | no | activo |
 | 2 | Security group (3) | quien puede *abrir una conexion* | si | activo |
 | 3 | Tabla de rutas | si existe *camino* hacia un destino | — | activo |
-| — | WAF v2 | que *peticiones* pasan | si | **apagado** |
+| — | WAF v2 | que *peticiones* pasan | si | **encendido** (A2) |
 
 Las NACL son el unico nivel que puede denegar de forma explicita: un security
 group solo sabe permitir. Y al no tener estado, cada capa necesita una regla
@@ -279,9 +279,14 @@ ideas: son `terraform apply` de distancia.
 
 ### WAF v2 — reglas de capa 7
 
-`enable_waf`. Hoy el ALB acepta cualquier peticion bien formada. El modulo trae
-el conjunto gestionado de OWASP, reglas contra SQLi y un limite de 2000
-peticiones por IP cada cinco minutos.
+`enable_waf`, **encendido por omision** desde la correccion A2 (posterior a la
+evaluacion; la version evaluada lo tenia apagado). El web ACL asociado al ALB
+trae el conjunto gestionado de OWASP, entradas maliciosas conocidas, reglas
+contra SQLi y un limite de 2000 peticiones por IP cada cinco minutos. Dos
+reglas del conjunto comun quedan en conteo por falsos positivos conocidos
+(`SizeRestrictions_BODY`, por la firma PNG del alta, y `NoUserAgent_HEADER`,
+por clientes servidor a servidor); el motivo esta junto a la variable en
+`envs/aws/security.tf`. Costo estimado: unos USD 9 al mes.
 
 Es el unico control que mira el *contenido* de la peticion: las NACL ven
 paquetes y los security groups ven conexiones, ninguno distingue un `POST`

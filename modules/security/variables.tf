@@ -29,6 +29,15 @@ variable "waf_rate_limit" {
   default     = 2000
 }
 
+variable "waf_rule_action_overrides" {
+  description = <<-EOT
+    Reglas de un grupo administrado que se pasan a modo conteo (se registran,
+    no bloquean), por grupo. Solo para falsos positivos documentados.
+  EOT
+  type        = map(list(string))
+  default     = {}
+}
+
 variable "waf_managed_rule_groups" {
   description = "Grupos de reglas administradas de AWS, en orden de prioridad."
   type        = list(string)
