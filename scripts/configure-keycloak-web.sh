@@ -9,6 +9,7 @@ set -euo pipefail
 : "${KEYCLOAK_BASE_URL:?Define KEYCLOAK_BASE_URL, por ejemplo http://localhost:18080 por el tunel}"
 : "${KEYCLOAK_ADMIN_PASSWORD:?Define KEYCLOAK_ADMIN_PASSWORD}"
 : "${KEYCLOAK_MEDICO_PASSWORD:?Define KEYCLOAK_MEDICO_PASSWORD para la clave temporal}"
+: "${KEYCLOAK_PROVISIONER_SECRET:?Define KEYCLOAK_PROVISIONER_SECRET (secreto keycloak-provisioner-client)}"
 command -v python3 >/dev/null || { echo 'Falta Python 3 para configurar Keycloak.' >&2; exit 1; }
 
 medico_user="${KEYCLOAK_MEDICO_USERNAME:-medico.inicial}"
@@ -451,4 +452,88 @@ if [[ "$authorization_probe" == *invalid_scope* ]]; then
   exit 1
 fi
 
+# ── Seguridad del realm (correccion A3) ───────────────────────────────────
+# Va al final: la politica de contrasenas aplica a cambios posteriores y no
+# debe interferir con la clave temporal del usuario semilla.
+#
+# - Contrasenas: 12 caracteres, mayuscula, minuscula, digito, distinta del
+#   usuario y de las 5 anteriores.
+# - Sesion: 30 min de inactividad y 10 h maximas (un turno clinico).
+# - Fuerza bruta: bloqueo temporal tras 5 fallos, creciente hasta 15 min.
+realm_security="$(jq -nc '{
+  passwordPolicy: "length(12) and upperCase(1) and lowerCase(1) and digits(1) and notUsername and passwordHistory(5)",
+  ssoSessionIdleTimeout: 1800,
+  ssoSessionMaxLifespan: 36000,
+  bruteForceProtected: true,
+  permanentLockout: false,
+  failureFactor: 5,
+  waitIncrementSeconds: 60,
+  maxFailureWaitSeconds: 900,
+  maxDeltaTimeSeconds: 43200,
+  quickLoginCheckMilliSeconds: 1000,
+  minimumQuickLoginWaitSeconds: 60
+}')"
+kc_curl -fsS -o /dev/null -X PUT "$realm_url" -d "$realm_security"
+
+# admin-cli del realm congenia: sin concesion por contrasena. Nadie lo usa; si
+# quedara activo, permitiria obtener tokens con usuario y clave sin pasar por
+# el login del navegador (y su proteccion contra fuerza bruta en pantalla).
+admin_cli_uuid="$(kc_curl -fsS "${realm_url}/clients?clientId=admin-cli" | jq -er '.[0].id')"
+admin_cli_json="$(kc_curl -fsS "${realm_url}/clients/${admin_cli_uuid}" | jq -ca '.directAccessGrantsEnabled = false')"
+kc_curl -fsS -o /dev/null -X PUT "${realm_url}/clients/${admin_cli_uuid}" -d "$admin_cli_json"
+
+# Cliente confidencial para el aprovisionamiento rutinario de usuarios. Solo
+# cuenta de servicio, y solo los roles de realm-management que necesita para
+# crear usuarios y asignarlos a grupos. El admin de master queda para esta
+# configuracion inicial, por el tunel privado.
+provisioner_json="$(jq -nca --arg secret "$KEYCLOAK_PROVISIONER_SECRET" '{
+  clientId: "congenia-provisioner",
+  name: "CONGENIA — Aprovisionamiento de usuarios",
+  description: "Cuenta de servicio para alta de usuarios y grupos; sin login interactivo",
+  enabled: true,
+  publicClient: false,
+  clientAuthenticatorType: "client-secret",
+  secret: $secret,
+  standardFlowEnabled: false,
+  implicitFlowEnabled: false,
+  directAccessGrantsEnabled: false,
+  serviceAccountsEnabled: true,
+  protocol: "openid-connect",
+  redirectUris: [],
+  webOrigins: []
+}')"
+provisioner_uuid="$(kc_curl -fsS "${realm_url}/clients?clientId=congenia-provisioner" | jq -er '.[0].id // empty' || true)"
+if [[ -z "$provisioner_uuid" ]]; then
+  kc_curl -fsS -o /dev/null -X POST "${realm_url}/clients" -d "$provisioner_json"
+  provisioner_uuid="$(kc_curl -fsS "${realm_url}/clients?clientId=congenia-provisioner" | jq -er '.[0].id')"
+else
+  kc_curl -fsS -o /dev/null -X PUT "${realm_url}/clients/${provisioner_uuid}" -d "$provisioner_json"
+fi
+
+provisioner_roles=(manage-users view-users query-users query-groups)
+service_account_id="$(kc_curl -fsS "${realm_url}/clients/${provisioner_uuid}/service-account-user" | jq -er '.id')"
+realm_management_uuid="$(kc_curl -fsS "${realm_url}/clients?clientId=realm-management" | jq -er '.[0].id')"
+sa_mappings_url="${realm_url}/users/${service_account_id}/role-mappings/clients/${realm_management_uuid}"
+wanted_roles="$(kc_curl -fsS "${realm_url}/clients/${realm_management_uuid}/roles" |
+  jq -c --args '[.[] | select(.name as $n | $ARGS.positional | index($n))]' "${provisioner_roles[@]}")"
+kc_curl -fsS -o /dev/null -X POST "$sa_mappings_url" -d "$wanted_roles"
+# Cualquier otro rol de realm-management se retira: el cliente queda minimo.
+extra_roles="$(kc_curl -fsS "$sa_mappings_url" |
+  jq -c --args '[.[] | select(.name as $n | ($ARGS.positional | index($n)) | not)]' "${provisioner_roles[@]}")"
+if [[ "$extra_roles" != "[]" ]]; then
+  kc_curl -fsS -o /dev/null -X DELETE "$sa_mappings_url" -d "$extra_roles"
+fi
+
+kc_curl -fsS "$realm_url" | jq -e '
+  .bruteForceProtected == true and .failureFactor == 5 and
+  (.passwordPolicy | contains("length(12)")) and .ssoSessionIdleTimeout == 1800
+' >/dev/null || { echo 'FALLA: el realm no conserva la politica de contrasenas, sesion o fuerza bruta.' >&2; exit 1; }
+kc_curl -fsS "${realm_url}/clients/${admin_cli_uuid}" | jq -e '.directAccessGrantsEnabled == false' >/dev/null || {
+  echo 'FALLA: admin-cli de congenia sigue aceptando contrasenas.' >&2; exit 1;
+}
+kc_curl -fsS "$sa_mappings_url" | jq -e --args '([.[].name] | sort) == ($ARGS.positional | sort)' "${provisioner_roles[@]}" >/dev/null || {
+  echo 'FALLA: congenia-provisioner no tiene exactamente sus roles minimos.' >&2; exit 1;
+}
+
 echo "OK: congenia-web verificado con scopes profile, email, roles y tenants; usuario ${medico_user} configurado."
+echo "OK: realm con politica de contrasenas, sesion y fuerza bruta; admin-cli sin contrasena; congenia-provisioner con ${provisioner_roles[*]}."

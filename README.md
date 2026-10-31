@@ -193,6 +193,9 @@ export KEYCLOAK_ADMIN_PASSWORD="$(aws secretsmanager get-secret-value \
 export KEYCLOAK_MEDICO_PASSWORD="$(aws secretsmanager get-secret-value \
   --secret-id "$(terraform -chdir=envs/aws output -raw keycloak_medico_initial_secret_arn)" \
   --query SecretString --output text)"
+export KEYCLOAK_PROVISIONER_SECRET="$(aws secretsmanager get-secret-value \
+  --secret-id "$(terraform -chdir=envs/aws output -raw keycloak_provisioner_secret_arn)" \
+  --query SecretString --output text)"
 export KEYCLOAK_MEDICO_TENANTS="${KEYCLOAK_MEDICO_TENANTS:-23,254}"
 export KEYCLOAK_SUPERADMIN_USERNAME="${KEYCLOAK_SUPERADMIN_USERNAME:-admin-doctor}"
 export KEYCLOAK_SADC_TENANT="${KEYCLOAK_SADC_TENANT:-254}"

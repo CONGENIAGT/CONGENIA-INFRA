@@ -83,6 +83,11 @@ output "sadc_client_secret_arn" {
   value       = aws_secretsmanager_secret.keycloak_sadc.arn
 }
 
+output "keycloak_provisioner_secret_arn" {
+  description = "Secreto del cliente congenia-provisioner (cuenta de servicio de aprovisionamiento)."
+  value       = aws_secretsmanager_secret.keycloak_provisioner.arn
+}
+
 output "keycloak_admin_secret_arn" {
   description = "ARN del password del administrador bootstrap de Keycloak."
   value       = aws_secretsmanager_secret.keycloak_admin.arn

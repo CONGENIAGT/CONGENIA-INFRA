@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Authenticated JSON requests used by configure-keycloak-web.sh."""
+"""Authenticated JSON requests used by the Keycloak operation scripts.
+
+Two credentials, chosen by the environment:
+
+- KEYCLOAK_CLIENT_ID + KEYCLOAK_CLIENT_SECRET: a confidential service-account
+  client of the congenia realm (client_credentials). Used for routine user
+  provisioning; it can only reach /admin/realms/congenia/.
+- KEYCLOAK_ADMIN_PASSWORD: the master administrator (password grant of the
+  master admin-cli). Only for the initial realm configuration, through the
+  private tunnel: the ALB no longer publishes /admin/* or /realms/master/*.
+"""
 import argparse
 import json
 import os
@@ -20,14 +30,24 @@ def admin_token(base_url, refresh=False):
                 return saved["access_token"]
         except (FileNotFoundError, KeyError, ValueError):
             pass
-    body = urllib.parse.urlencode({
-        "grant_type": "password",
-        "client_id": "admin-cli",
-        "username": os.environ.get("KEYCLOAK_ADMIN_USERNAME", "admin"),
-        "password": os.environ["KEYCLOAK_ADMIN_PASSWORD"],
-    }).encode()
+    client_id = os.environ.get("KEYCLOAK_CLIENT_ID")
+    if client_id:
+        body = urllib.parse.urlencode({
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": os.environ["KEYCLOAK_CLIENT_SECRET"],
+        }).encode()
+        token_realm = "congenia"
+    else:
+        body = urllib.parse.urlencode({
+            "grant_type": "password",
+            "client_id": "admin-cli",
+            "username": os.environ.get("KEYCLOAK_ADMIN_USERNAME", "admin"),
+            "password": os.environ["KEYCLOAK_ADMIN_PASSWORD"],
+        }).encode()
+        token_realm = "master"
     request = urllib.request.Request(
-        base_url + "/realms/master/protocol/openid-connect/token", data=body
+        base_url + f"/realms/{token_realm}/protocol/openid-connect/token", data=body
     )
     issued_at = time.time()
     with urllib.request.urlopen(request, timeout=25) as response:
@@ -49,7 +69,9 @@ def main(argv=None):
     parser.add_argument("url")
     args = parser.parse_args(argv)
     base_url = os.environ["KEYCLOAK_BASE_URL"].rstrip("/")
-    if not args.url.startswith(base_url + "/admin/realms/"):
+    # The service account only administers the congenia realm.
+    allowed = "/admin/realms/congenia/" if os.environ.get("KEYCLOAK_CLIENT_ID") else "/admin/realms/"
+    if not args.url.startswith(base_url + allowed):
         parser.error("Only the configured Keycloak admin API is allowed")
     body = None if args.data is None else (
         sys.stdin.buffer.read() if args.data == "@-" else args.data.encode()
