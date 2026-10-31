@@ -50,6 +50,11 @@ locals {
     S3_FORCE_PATH_STYLE = "false"
     S3_UPLOAD_MAX_BYTES = tostring(10 * 1024 * 1024)
 
+    # Vigencia de la URL prefirmada de subida (correccion A5; antes 3600 s por
+    # omision). La carga mas lenta medida en la evaluacion fue 6.8 s (p95, E3);
+    # la ficha pide la URL justo antes de subir y la renueva si recibe 403.
+    S3_PRESIGN_EXPIRY_SECONDS = "300"
+
     # S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY siguen sin pasarse, y ahora eso
     # es lo correcto y no una limitacion: sin llaves, el SDK recorre su cadena
     # de credenciales y usa el rol IAM de la tarea, que ya tiene politica sobre
