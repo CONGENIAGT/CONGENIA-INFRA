@@ -101,6 +101,11 @@ module "keycloak" {
     KC_HOSTNAME         = local.public_url
     KC_HOSTNAME_STRICT  = "false"
     CONGENIA_PUBLIC_URL = local.public_url
+
+    # La consola de administracion se publica solo en la URL del tunel privado
+    # (db-access): el ALB responde 404 a /admin/* y /realms/master/*. Llega por
+    # HTTP desde la IP privada del relay, que sslRequired=external admite.
+    KC_HOSTNAME_ADMIN = "http://localhost:${var.keycloak_admin_tunnel_port}"
   }
 
   secrets = {

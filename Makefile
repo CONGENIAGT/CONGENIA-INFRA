@@ -16,7 +16,7 @@ TF_ARGS  = $(VAR_FILE) $(TF_VARS)
 	destroy nuke verify-teardown fmt validate up-aws migrate migrate-image \
 	cie10-batch cie10-index cie10-ready reporting-ready \
 	cost-status stop db-access-prepare db-access-plan db-access-up \
-	db-access-status db-access-tunnel db-access-stop db-access-destroy db-access-verify test-db-access
+	db-access-status db-access-tunnel db-access-keycloak db-access-stop db-access-destroy db-access-verify test-db-access
 
 help:
 	@echo "make up-aws    - ciclo completo: create + migrate + open + smoke"
@@ -28,6 +28,7 @@ help:
 	@echo "make stop      - alias de close; tambien detiene db-access"
 	@echo "make db-access-prepare - importa las reglas data existentes (solo estado)"
 	@echo "make db-access-{plan,up,status,tunnel,stop,destroy,verify} - acceso privado a PostgreSQL"
+	@echo "make db-access-keycloak - consola de Keycloak por el mismo relay (no se publica en el ALB)"
 	@echo "make smoke     - pruebas de salud a traves del ALB"
 	@echo "make smoke-integration - prueba OAuth y activacion (requiere SADC_CLIENT_SECRET)"
 	@echo "make migrate-image - construye y publica la imagen de migracion en ECR"
@@ -63,7 +64,7 @@ stop: close
 db-access-prepare:
 	@TERRAFORM='$(TERRAFORM)' ./scripts/migrate-data-sg-rules.sh $(TFDIR) --apply $(TF_ARGS)
 
-db-access-plan db-access-up db-access-status db-access-tunnel db-access-stop db-access-verify:
+db-access-plan db-access-up db-access-status db-access-tunnel db-access-keycloak db-access-stop db-access-verify:
 	@TERRAFORM='$(TERRAFORM)' ./scripts/db-access.sh $(patsubst db-access-%,%,$@)
 
 db-access-destroy:

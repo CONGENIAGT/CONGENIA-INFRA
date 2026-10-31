@@ -370,13 +370,19 @@ module "edge" {
       priority     = 10
       health_check = "/health"
     }
+    # Sin /admin/*: la consola y la API de administracion de Keycloak solo se
+    # alcanzan por el tunel privado de db-access (ver keycloak_admin_tunnel_port).
     keycloak = {
       port         = local.ports.keycloak
-      paths        = ["/realms/*", "/resources/*", "/admin/*"]
+      paths        = ["/realms/*", "/resources/*"]
       priority     = 20
       health_check = "/"
     }
   }
+
+  # /realms/master es el realm del administrador de Keycloak: su login y su
+  # token por contrasena tampoco se publican. El realm congenia sigue abierto.
+  blocked_paths = ["/admin/*", "/realms/master/*"]
 }
 
 # ── Descubrimiento de servicios ─────────────────────────────────────────────

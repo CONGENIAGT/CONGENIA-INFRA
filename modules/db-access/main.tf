@@ -1,5 +1,9 @@
 locals {
   name = "${var.connection.name_prefix}-${var.connection.environment}-db-access"
+
+  # El tunel a Keycloak existe solo si el contrato trae su destino y el grupo
+  # de operador que la capa app admite en 8080.
+  keycloak_enabled = var.connection.keycloak_host != null && var.connection.operator_sg_id != null
 }
 
 data "aws_partition" "current" {}
@@ -75,7 +79,7 @@ resource "aws_instance" "relay" {
   instance_type               = "t4g.micro"
   subnet_id                   = var.connection.subnet_id
   associate_public_ip_address = false
-  vpc_security_group_ids      = [aws_security_group.relay.id]
+  vpc_security_group_ids      = concat([aws_security_group.relay.id], local.keycloak_enabled ? [var.connection.operator_sg_id] : [])
   iam_instance_profile        = aws_iam_instance_profile.relay.name
 
   metadata_options {
@@ -133,6 +137,36 @@ resource "aws_ssm_document" "tunnel" {
   tags = var.tags
 }
 
+# Consola de Keycloak sin publicarla en el ALB. Destino y puertos fijos: el
+# operador no elige host, y el puerto local debe ser el que Keycloak anuncia
+# como KC_HOSTNAME_ADMIN (http://localhost:<puerto>).
+resource "aws_ssm_document" "keycloak" {
+  count = local.keycloak_enabled ? 1 : 0
+
+  name            = "${local.name}-keycloak"
+  document_type   = "Session"
+  document_format = "JSON"
+  content = jsonencode({
+    schemaVersion = "1.0"
+    description   = "Acceso exclusivo a la consola de Keycloak CONGENIA"
+    sessionType   = "Port"
+    parameters = {
+      localPortNumber = {
+        type           = "String"
+        default        = tostring(var.connection.keycloak_tunnel_port)
+        allowedPattern = "^${var.connection.keycloak_tunnel_port}$"
+      }
+    }
+    properties = {
+      host            = var.connection.keycloak_host
+      portNumber      = tostring(var.connection.keycloak_port)
+      localPortNumber = "{{ localPortNumber }}"
+      type            = "LocalPortForwarding"
+    }
+  })
+  tags = var.tags
+}
+
 # Las asignaciones opcionales tambien pertenecen a este stack.
 # No concede credenciales PostgreSQL ni acceso al estado de infraestructura.
 resource "aws_iam_policy" "operator" {
@@ -144,7 +178,7 @@ resource "aws_iam_policy" "operator" {
       {
         Effect    = "Allow"
         Action    = ["ssm:StartSession"]
-        Resource  = [aws_instance.relay.arn, aws_ssm_document.tunnel.arn]
+        Resource  = concat([aws_instance.relay.arn, aws_ssm_document.tunnel.arn], aws_ssm_document.keycloak[*].arn)
         Condition = { BoolIfExists = { "ssm:SessionDocumentAccessCheck" = "true" } }
       },
       {

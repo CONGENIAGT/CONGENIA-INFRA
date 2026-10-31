@@ -391,7 +391,10 @@ El backend usa `tenants` desde el access token como autoridad para
 filtrar fichas y adendas; sin ese atributo el usuario no ve datos clinicos.
 
 ```bash
-export KEYCLOAK_BASE_URL="$(terraform -chdir=envs/aws output -raw public_url)"
+# La API de administracion no se publica en el ALB: abrir antes el tunel
+# privado en otra terminal (make db-access-up && make db-access-keycloak).
+export KEYCLOAK_BASE_URL="http://localhost:18080"
+export KEYCLOAK_PUBLIC_URL="$(terraform -chdir=envs/aws output -raw public_url)"
 
 export KEYCLOAK_ADMIN_PASSWORD="$(aws secretsmanager get-secret-value \
   --region us-east-1 \

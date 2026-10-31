@@ -37,3 +37,8 @@ output "private_route_table_ids" {
 output "nat_gateway_id" {
   value = var.enable_nat_gateway ? aws_nat_gateway.this[0].id : null
 }
+
+output "operator_sg_id" {
+  description = "Grupo del relay de operadores; solo sale a Keycloak 8080."
+  value       = aws_security_group.operator.id
+}

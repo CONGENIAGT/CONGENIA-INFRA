@@ -56,6 +56,14 @@ resource "aws_security_group" "app" {
     self        = true
   }
 
+  ingress {
+    description     = "Consola de Keycloak desde el relay de operadores (tunel SSM)"
+    from_port       = 8080
+    to_port         = 8080
+    protocol        = "tcp"
+    security_groups = [aws_security_group.operator.id]
+  }
+
   # Salida abierta: la API necesita NurseraAPI y el Agent necesita el LLM.
   # Un control de egreso por dominio queda como endurecimiento posterior.
   egress {
@@ -67,6 +75,27 @@ resource "aws_security_group" "app" {
   }
 
   tags = merge(var.tags, { Name = "${var.name_prefix}-app-sg" })
+}
+
+# Grupo que adjunta el relay de db-access para llegar a la consola de Keycloak.
+# Vive aqui, y no en db-access, para que la regla de entrada al SG app sea
+# inline como las demas: una regla agregada desde otro stack la borraria el
+# siguiente apply de este. Sin el relay, el grupo no tiene miembros.
+resource "aws_security_group" "operator" {
+  name        = "${var.name_prefix}-operator-sg"
+  description = "Relay de operadores: solo sale a la consola de Keycloak"
+  vpc_id      = aws_vpc.this.id
+
+  tags = merge(var.tags, { Name = "${var.name_prefix}-operator-sg" })
+}
+
+resource "aws_vpc_security_group_egress_rule" "operator_keycloak" {
+  security_group_id            = aws_security_group.operator.id
+  referenced_security_group_id = aws_security_group.app.id
+  description                  = "Keycloak 8080 en la capa app"
+  ip_protocol                  = "tcp"
+  from_port                    = 8080
+  to_port                      = 8080
 }
 
 resource "aws_security_group" "data" {

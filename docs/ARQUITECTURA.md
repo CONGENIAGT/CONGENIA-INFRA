@@ -80,7 +80,7 @@ flowchart TB
     user -->|"HTTPS"| alb
     alb -->|"/ por defecto"| fe
     alb -->|"/v1/* /api/* /health* /docs*"| api
-    alb -->|"/realms/* /resources/* /admin/*"| kc
+    alb -->|"/realms/* /resources/*"| kc
 
     api --> pg
     api --> redis
@@ -115,9 +115,13 @@ nadie los resuelva.
 
    | Prioridad | Rutas | Destino |
    |---:|---|---|
+   | 1 | `/admin/*` `/realms/master/*` | 404 fijo del ALB |
    | 10 | `/v1/*` `/api/*` `/health*` `/openapi.json` `/docs*` | API |
-   | 20 | `/realms/*` `/resources/*` `/admin/*` | Keycloak |
+   | 20 | `/realms/*` `/resources/*` | Keycloak |
    | 100 | resto | frontend |
+
+   La regla 1 existe para que las rutas administrativas de Keycloak no caigan
+   en el destino por defecto: el SPA respondería 200 con su `index.html`.
 
    El frontend es el destino por defecto, con la prioridad mas alta en numero
    —es decir, la ultima que se evalua—: cualquier cosa que no reclamen la API
@@ -313,21 +317,19 @@ certificado mutuo y no una maquina puente: no abre puertos de entrada, no hay
 host que parchear y cada conexion queda registrada. Requiere emitir dos
 certificados en ACM.
 
-Hay una consecuencia que conviene mirar de frente: como no existe ese camino
-privado, **la consola de administracion de Keycloak se publica por internet**.
-La regla del ALB que enruta a Keycloak incluye `/admin/*` junto con
-`/realms/*`, de modo que el panel de administracion es alcanzable desde fuera y
-lo unico que lo protege es el login de Keycloak. Comprobado:
+**La consola de administracion de Keycloak ya no se publica por internet**
+(correccion A1, posterior a la evaluacion). Hasta la version evaluada, la regla
+del ALB de Keycloak incluia `/admin/*` y la consola respondia 200 desde fuera.
+Ahora:
 
-```
-$ curl -o /dev/null -w '%{http_code}' https://cogenia.app/admin/master/console/
-200
-```
+- El ALB responde 404 fijo a `/admin/*` y `/realms/master/*` (regla 1).
+- Keycloak anuncia su consola en `KC_HOSTNAME_ADMIN=http://localhost:18080`.
+- El relay de `envs/db-access` adjunta el grupo `operator-sg`, que la capa app
+  admite solo en 8080, y publica un segundo documento de Session Manager con
+  destino fijo `keycloak.<namespace>:8080` y puerto local 18080.
+  `make db-access-keycloak` abre ese tunel. Sin el relay no hay camino.
 
-Con la VPN en pie, lo correcto seria sacar `/admin/*` de la regla publica y
-dejar esa consola accesible solo por el tunel. Mientras tanto, es una
-superficie expuesta que existe porque falta la alternativa, no porque se haya
-decidido.
+Mientras la Client VPN siga apagada, ese tunel es el canal administrativo.
 
 El tunel sitio a sitio hacia la base de datos externa de Nursera esta escrito
 en el mismo modulo y espera tres datos del otro dominio: IP publica del

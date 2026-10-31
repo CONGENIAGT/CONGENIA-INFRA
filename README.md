@@ -183,7 +183,10 @@ make smoke ENV=aws
 # arranque de Keycloak no sobrescribe realms persistidos. El script restaura
 # profile/email/roles desde el realm master, agrega tenants al token, asigna
 # roles clinicos/dashboard y verifica el resultado.
-export KEYCLOAK_BASE_URL="$(terraform -chdir=envs/aws output -raw public_url)"
+# La API de administracion no se publica en el ALB: abrir antes el tunel
+# privado en otra terminal (make db-access-up && make db-access-keycloak).
+export KEYCLOAK_BASE_URL="http://localhost:18080"
+export KEYCLOAK_PUBLIC_URL="$(terraform -chdir=envs/aws output -raw public_url)"
 export KEYCLOAK_ADMIN_PASSWORD="$(aws secretsmanager get-secret-value \
   --secret-id "$(terraform -chdir=envs/aws output -raw keycloak_admin_secret_arn)" \
   --query SecretString --output text)"

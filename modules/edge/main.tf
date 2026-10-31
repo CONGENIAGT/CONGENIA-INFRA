@@ -133,3 +133,30 @@ resource "aws_lb_listener_rule" "this" {
 
   tags = merge(var.tags, { Name = "${var.name_prefix}-${each.key}-rule" })
 }
+
+# Antes que cualquier regla de enrutamiento (prioridad 1): una ruta bloqueada no
+# llega a ningun destino aunque otra regla la cubra con un comodin.
+resource "aws_lb_listener_rule" "blocked" {
+  count = length(var.blocked_paths) > 0 ? 1 : 0
+
+  listener_arn = local.serving_listener_arn
+  priority     = 1
+
+  action {
+    type = "fixed-response"
+
+    fixed_response {
+      content_type = "text/plain"
+      message_body = "Not Found"
+      status_code  = "404"
+    }
+  }
+
+  condition {
+    path_pattern {
+      values = var.blocked_paths
+    }
+  }
+
+  tags = merge(var.tags, { Name = "${var.name_prefix}-blocked-rule" })
+}

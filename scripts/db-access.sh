@@ -16,7 +16,7 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 fail() { echo "ERROR: $*" >&2; exit 1; }
-case "$ACTION" in plan|up|status|tunnel|stop|destroy|verify) ;; *) fail "Accion desconocida: $ACTION" ;; esac
+case "$ACTION" in plan|up|status|tunnel|keycloak|stop|destroy|verify) ;; *) fail "Accion desconocida: $ACTION" ;; esac
 for bin in aws jq; do command -v "$bin" >/dev/null || fail "Falta $bin"; done
 export AWS_PAGER=""
 
@@ -72,7 +72,7 @@ inventory() {
      roles: [$roles[0].Roles[] | select(.RoleName == $name) | .RoleName],
      profiles: [$p[0].InstanceProfiles[] | select(.InstanceProfileName == $name) | .InstanceProfileName],
      policies: [$policies[0].Policies[] | select(.PolicyName == ($name + "-operator")) | .Arn],
-     documents: [$d[0].DocumentIdentifiers[] | select(.Name == $name) | .Name]}' > "$WORK/inventory.json"
+     documents: [$d[0].DocumentIdentifiers[] | select(.Name == $name or .Name == ($name + "-keycloak")) | .Name]}' > "$WORK/inventory.json"
   local groups
   groups=$(jq -r '.security_groups | join(",")' "$WORK/inventory.json")
   if [[ -n "$groups" ]]; then
@@ -168,7 +168,7 @@ case "$ACTION" in
       if ! jq -e '.instances|length == 1' "$WORK/inventory.json" >/dev/null; then
         fail "Inventario inconsistente"
       fi
-      if ! jq -e '(.volumes|length)==1 and (.security_groups|length)==1 and (.rules|length)==3 and (.roles|length)==1 and (.profiles|length)==1 and (.policies|length)==1 and (.documents|length)==1' "$WORK/inventory.json" >/dev/null; then
+      if ! jq -e '(.volumes|length)==1 and (.security_groups|length)==1 and (.rules|length)==3 and (.roles|length)==1 and (.profiles|length)==1 and (.policies|length)==1 and ((.documents|length)==1 or (.documents|length)==2)' "$WORK/inventory.json" >/dev/null; then
         echo "Estado: incompleto (faltan recursos auxiliares; revisar el inventario)"
       fi
       echo "Estado EC2: $STATE | Instancia: $INSTANCE"
@@ -200,6 +200,18 @@ case "$ACTION" in
     online
     echo "DBeaver: 127.0.0.1:$PORT; PostgreSQL congenia; SSL con CA de RDS. Ctrl-C cierra el tunel; no detiene EC2."
     awsq ssm start-session --target "$INSTANCE" --document-name "$NAME" \
+      --parameters "$(jq -nc --arg port "$PORT" '{localPortNumber:[$port]}')"
+    ;;
+  keycloak)
+    command -v session-manager-plugin >/dev/null || fail "Instala el Session Manager plugin para AWS CLI en tu Mac (ver docs/DEPLOY.md)"
+    [[ -f "$CONFIG" ]] || fail "Falta el contrato local: ejecuta make db-access-up"
+    PORT=$(jq -r '.connection.keycloak_tunnel_port // empty' "$CONFIG")
+    [[ -n "$PORT" ]] || fail "El contrato no trae la consola de Keycloak: aplicar envs/aws y renovar db-access"
+    instances
+    [[ "$STATE" == running ]] || fail "Estado $STATE. Ejecuta make db-access-up"
+    online
+    echo "Consola: http://localhost:$PORT/admin/master/console/ (solo por este tunel). Ctrl-C lo cierra; no detiene EC2."
+    awsq ssm start-session --target "$INSTANCE" --document-name "$NAME-keycloak" \
       --parameters "$(jq -nc --arg port "$PORT" '{localPortNumber:[$port]}')"
     ;;
   destroy)
