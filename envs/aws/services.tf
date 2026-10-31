@@ -55,6 +55,10 @@ locals {
     # la ficha pide la URL justo antes de subir y la renueva si recibe 403.
     S3_PRESIGN_EXPIRY_SECONDS = "300"
 
+    # Cada escritura declara el cifrado: la politica del bucket rechaza un
+    # PutObject sin x-amz-server-side-encryption (correccion A6).
+    S3_SERVER_SIDE_ENCRYPTION = "AES256"
+
     # S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY siguen sin pasarse, y ahora eso
     # es lo correcto y no una limitacion: sin llaves, el SDK recorre su cadena
     # de credenciales y usa el rol IAM de la tarea, que ya tiene politica sobre
