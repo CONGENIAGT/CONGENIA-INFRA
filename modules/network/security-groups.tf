@@ -35,25 +35,52 @@ resource "aws_security_group" "edge" {
   tags = merge(var.tags, { Name = "${var.name_prefix}-edge-sg" })
 }
 
+locals {
+  # Puertos que el ALB necesita en la capa app: los de sus tres target groups.
+  app_ports_from_alb = {
+    frontend = 80
+    api      = 3000
+    keycloak = 8080
+  }
+
+  # Trafico entre tareas de la capa app, por puerto. Antes era 0-65535 en ambos
+  # sentidos: el ALB podia alcanzar RabbitMQ y su consola, y cualquier tarea
+  # cualquier puerto de otra.
+  app_ports_between_tasks = {
+    "API interna (Cloud Map)"                         = 3000
+    "RabbitMQ AMQP: API y worker"                     = 5672
+    "Keycloak: JWKS para la API"                      = 8080
+    "Consola de RabbitMQ: observacion de colas"       = 15672
+    "Keycloak: cluster JGroups durante un despliegue" = 7800
+    "Keycloak: deteccion de fallos de JGroups"        = 57800
+  }
+}
+
 resource "aws_security_group" "app" {
   name        = "${var.name_prefix}-app-sg"
   description = "Tareas ECS: solo reciben del ALB o de sus pares"
   vpc_id      = aws_vpc.this.id
 
-  ingress {
-    description     = "Desde el ALB"
-    from_port       = 0
-    to_port         = 65535
-    protocol        = "tcp"
-    security_groups = [aws_security_group.edge.id]
+  dynamic "ingress" {
+    for_each = local.app_ports_from_alb
+    content {
+      description     = "Desde el ALB: ${ingress.key}"
+      from_port       = ingress.value
+      to_port         = ingress.value
+      protocol        = "tcp"
+      security_groups = [aws_security_group.edge.id]
+    }
   }
 
-  ingress {
-    description = "Entre servicios de la misma capa: API, Keycloak, Worker"
-    from_port   = 0
-    to_port     = 65535
-    protocol    = "tcp"
-    self        = true
+  dynamic "ingress" {
+    for_each = local.app_ports_between_tasks
+    content {
+      description = ingress.key
+      from_port   = ingress.value
+      to_port     = ingress.value
+      protocol    = "tcp"
+      self        = true
+    }
   }
 
   ingress {
