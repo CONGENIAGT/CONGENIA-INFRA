@@ -392,6 +392,17 @@ comparten un cache temporal privado, renuevan antes de expirar y reintentan
 una vez si Keycloak rechaza el token con 401;
 el token no se imprime ni se pasa como argumento de proceso.
 
+El script tambien fija la seguridad del realm (correccion A3): politica de
+contrasenas, limites de sesion y proteccion contra fuerza bruta; quita la
+concesion por contrasena al `admin-cli` del realm `congenia`, y crea el
+cliente confidencial `congenia-provisioner` con solo `manage-users`,
+`view-users`, `query-users` y `query-groups`. Desde entonces el alta de
+usuarios clinicos no usa el administrador de `master`:
+
+```bash
+scripts/keycloak-provision-user.sh medico.nuevo "Nombre Apellido" medicos 254
+```
+
 El backend usa `tenants` desde el access token como autoridad para
 filtrar fichas y adendas; sin ese atributo el usuario no ve datos clinicos.
 
@@ -413,6 +424,9 @@ export KEYCLOAK_MEDICO_PASSWORD="$(aws secretsmanager get-secret-value \
 
 # Defaults productivos. El medico recibe membresias por tenant; el usuario
 # administrativo recibe el grupo de superadministradores.
+export KEYCLOAK_PROVISIONER_SECRET="$(aws secretsmanager get-secret-value \
+  --secret-id "$(terraform -chdir=envs/aws output -raw keycloak_provisioner_secret_arn)" \
+  --query SecretString --output text)"
 export KEYCLOAK_MEDICO_TENANTS="${KEYCLOAK_MEDICO_TENANTS:-23,254}"
 export KEYCLOAK_SUPERADMIN_USERNAME="${KEYCLOAK_SUPERADMIN_USERNAME:-admin-doctor}"
 export KEYCLOAK_SADC_TENANT="${KEYCLOAK_SADC_TENANT:-254}"

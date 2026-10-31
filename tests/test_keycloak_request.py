@@ -5,6 +5,7 @@ import runpy
 import tempfile
 import unittest
 import urllib.error
+import urllib.parse
 from unittest import mock
 
 MAIN = runpy.run_path(str(pathlib.Path(__file__).parents[1] / "scripts/keycloak-request.py"))["main"]
@@ -77,3 +78,37 @@ class KeycloakRequestTests(unittest.TestCase):
                 self.assertEqual(send.call_count, 5)
                 request = send.call_args.args[0]
                 self.assertEqual(request.get_header("Authorization"), "Bearer renewed-token")
+
+
+class ServiceAccountRequestTests(unittest.TestCase):
+    """Provisioning with the congenia service account instead of the master admin."""
+
+    def setUp(self):
+        self.stdout = mock.Mock(buffer=io.BytesIO())
+        self.stderr = io.StringIO()
+        for patch in [
+            mock.patch.dict(os.environ, KEYCLOAK_BASE_URL=BASE, KEYCLOAK_CLIENT_ID="congenia-provisioner",
+                            KEYCLOAK_CLIENT_SECRET="test-secret", KEYCLOAK_ADMIN_PASSWORD=""),
+            mock.patch("sys.stdout", self.stdout),
+            mock.patch("sys.stderr", self.stderr),
+        ]:
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def test_token_comes_from_client_credentials_of_the_congenia_realm(self):
+        with mock.patch("urllib.request.urlopen", side_effect=[
+            io.BytesIO(b'{"access_token":"sa-token","expires_in":60}'), io.BytesIO(b'[]'),
+        ]) as send:
+            self.assertEqual(MAIN(["-fsS", BASE + "/admin/realms/congenia/users?exact=true&username=x"]), 0)
+        token_request = send.call_args_list[0].args[0]
+        self.assertEqual(token_request.full_url, BASE + "/realms/congenia/protocol/openid-connect/token")
+        form = urllib.parse.parse_qs(token_request.data.decode())
+        self.assertEqual(form["grant_type"], ["client_credentials"])
+        self.assertEqual(form["client_id"], ["congenia-provisioner"])
+        self.assertNotIn("password", form)
+        self.assertEqual(send.call_args_list[1].args[0].get_header("Authorization"), "Bearer sa-token")
+
+    def test_service_account_cannot_target_the_master_realm(self):
+        with mock.patch("urllib.request.urlopen") as send, self.assertRaises(SystemExit):
+            MAIN(["-fsS", BASE + "/admin/realms/master/users"])
+        send.assert_not_called()

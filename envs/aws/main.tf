@@ -228,6 +228,25 @@ resource "aws_secretsmanager_secret_version" "keycloak_sadc" {
   secret_string = random_password.keycloak_sadc.result
 }
 
+# Cliente confidencial congenia-provisioner (A3): aprovisiona usuarios con una
+# cuenta de servicio de roles minimos en lugar del administrador de master.
+# Ninguna tarea lo consume; lo usan los scripts de operacion.
+resource "random_password" "keycloak_provisioner" {
+  length  = 40
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "keycloak_provisioner" {
+  name                    = "${var.name_prefix}/${var.environment}/keycloak-provisioner-client"
+  recovery_window_in_days = var.allow_destroy ? 0 : 30
+  tags                    = local.tags
+}
+
+resource "aws_secretsmanager_secret_version" "keycloak_provisioner" {
+  secret_id     = aws_secretsmanager_secret.keycloak_provisioner.id
+  secret_string = random_password.keycloak_provisioner.result
+}
+
 resource "random_password" "keycloak_medico_initial" {
   length  = 24
   special = false
