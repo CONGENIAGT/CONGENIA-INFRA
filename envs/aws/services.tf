@@ -95,8 +95,11 @@ module "keycloak" {
   desired_count    = var.enable_services ? lookup(var.service_desired_counts, "keycloak", 1) : 0
 
   environment = {
-    KC_DB                       = "postgres"
-    KC_DB_URL                   = "jdbc:postgresql://${module.data.db_address}:${module.data.db_port}/${module.data.db_name}?sslmode=require"
+    KC_DB = "postgres"
+    # verify-full valida la CA y el nombre del servidor, como API, worker y
+    # CIE-10 (A4). El paquete de CA va en la imagen (ORCH keycloak/certs/);
+    # requiere keycloak >= la imagen que lo incluye.
+    KC_DB_URL                   = "jdbc:postgresql://${module.data.db_address}:${module.data.db_port}/${module.data.db_name}?sslmode=verify-full&sslrootcert=/opt/keycloak/conf/rds-global-bundle.pem"
     KC_DB_USERNAME              = "congenia"
     KC_DB_SCHEMA                = "keycloak"
     KC_BOOTSTRAP_ADMIN_USERNAME = "admin"
@@ -188,11 +191,13 @@ module "api" {
   desired_count    = var.enable_services ? lookup(var.service_desired_counts, "api", 1) : 0
 
   environment = merge(local.db_env, local.rabbit_env, local.s3_env, local.redis_env, {
-    NODE_ENV               = "production"
-    APP_ENV                = var.environment
-    PORT                   = tostring(local.ports.api)
-    OIDC_ISSUER_URL        = "${local.public_url}/realms/congenia"
-    OIDC_JWKS_URL          = "${local.keycloak_internal}/realms/congenia/protocol/openid-connect/certs"
+    NODE_ENV        = "production"
+    APP_ENV         = var.environment
+    PORT            = tostring(local.ports.api)
+    OIDC_ISSUER_URL = "${local.public_url}/realms/congenia"
+    # Las claves publicas se obtienen por el dominio publico (HTTPS con el
+    # certificado de ACM) y no por HTTP interno; la API las guarda en cache.
+    OIDC_JWKS_URL          = "${local.public_url}/realms/congenia/protocol/openid-connect/certs"
     OIDC_AUDIENCE          = "congenia-api"
     OIDC_WEB_CLIENT_ID     = "congenia-web"
     SESSION_EXPIRY_MINUTES = "60"
